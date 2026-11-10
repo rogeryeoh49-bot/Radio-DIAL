@@ -2,9 +2,19 @@
 
 Radio DIAL is a macOS app for listening to internet radio and podcasts. It includes an FM receiver theme, live audio visualizers, recording and scheduling, a sleep timer, alarms, and song identification.
 
+## Install on Mac
+
+Paste this line into Terminal on macOS 14 or later. It works on Apple silicon and Intel Macs.
+
+```sh
+curl -fsSL https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/latest/download/install.sh | /bin/bash
+```
+
+The installer puts Radio DIAL in `~/Applications` and downloads a [standalone FFmpeg decoder](https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1) if needed for playback. Open it from that folder or run `open "$HOME/Applications/Radio Dial.app"`. You can also [download the app ZIP](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/latest) and provide your own FFmpeg. The app is locally signed and has not been notarized by Apple.
+
 ## Build and run
 
-Run `./build.sh` with the macOS Command Line Tools installed. It builds and locally signs `build/Radio Dial.app` for the current Mac. Requires macOS 14 or later. The player looks for FFmpeg in Homebrew’s default locations or at `FFMPEG_PATH`.
+Run `./build.sh` with the macOS Command Line Tools installed. It builds and locally signs `build/Radio Dial.app` for the current Mac. Use `./build.sh --universal` to build for Apple silicon and Intel. For a source build, install FFmpeg with Homebrew or set `FFMPEG_PATH`.
 
 Song identification can use the optional recognition environment. Install it with the two commands below. Without it, the app tries ShazamKit, which requires catalog access in the app’s signing configuration.
 

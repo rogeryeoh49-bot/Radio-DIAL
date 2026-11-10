@@ -5,7 +5,9 @@ import ShazamKit
 
 enum AudioTools {
     static var ffmpeg: URL? {
-        let paths = [ProcessInfo.processInfo.environment["FFMPEG_PATH"], "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
+        let portable = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Radio Dial/Tools/ffmpeg").path
+        let paths = [ProcessInfo.processInfo.environment["FFMPEG_PATH"], "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", portable]
         return paths.compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0) }.map { URL(fileURLWithPath: $0) }
     }
 
