@@ -41,7 +41,7 @@ python3.12 -m venv "$HOME/Library/Application Support/Radio Dial/Recognition"
 
 
 
-## I also hope that anyone interested can join me in making this software better, ##
+### I also hope that anyone interested can join me in making this software better, ##
   
 contribute different gorgeous themes or any other things, and help turn it into the No. 1 free radio player someday. 
   
