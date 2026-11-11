@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://readme-typing-svg.demolab.com/?font=VT323&size=70&duration=5000&pause=8000&color=39FF14&background=000000&center=false&vCenter=true&width=1000&height=80&lines=BEST+RADIO+player+on+macOS" />
+  <img src="https://readme-typing-svg.demolab.com/?font=VT323&size=70&duration=5000&pause=8000&color=39FF14&background=000000&center=true&vCenter=true&width=1000&height=80&lines=BEST+RADIO+player+on+macOS" />
 </div>
 
 # Radio DIAL
