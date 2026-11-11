@@ -1,4 +1,7 @@
-# BEST RADIO player on macOS
+<div align="center">
+  <img src="https://readme-typing-svg.demolab.com/?font=VT323&size=70&duration=5000&pause=8000&color=39FF14&background=000000&center=false&vCenter=true&width=1000&height=80&lines=BEST+RADIO+player+on+macOS" />
+</div>
+
 # Radio DIAL
 
 Radio DIAL is a macOS app for listening to internet radio and podcasts. It includes an FM receiver theme, live audio visualizers, recording and scheduling, a sleep timer, alarms, and song identification.
