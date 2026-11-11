@@ -4,7 +4,9 @@
 
 # Radio DIAL
 
-Radio DIAL is a macOS app for listening to internet radio and podcasts. It includes an FM receiver theme, live audio visualizers, recording and scheduling, a sleep timer, alarms, and song identification.
+Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide. It includes different themes, live audio visualizers, recording and scheduling, a sleep timer, alarms, and song/lyrics identification. 
+
+**ALL FREE**. It is impossible to find a pure radio player that doesn't ask you to spend money. At least, I've never found one on either iOS or macOS. Yes, so I made a pure radio player to give you access to completely free radio worldwide. Full of features to fit any needs.
 
 ## Install on Mac
 
@@ -36,3 +38,11 @@ python3.12 -m venv "$HOME/Library/Application Support/Radio Dial/Recognition"
 - Keep the app running and the Mac awake for scheduled actions. Radio Dial does not wake a sleeping Mac.
 - Last.fm and Discord require your own service credentials or application ID in Settings.
 - Settings and downloaded podcasts live under `~/Library/Application Support/Radio Dial`. The default recording folder is `~/Music/Radio Dial`.
+
+
+
+## I also hope that anyone interested can join me in making this software better, ##
+  
+contribute different gorgeous themes or any other things, and help turn it into the No. 1 free radio player someday. 
+  
+## Contact me at: [rogeryeoh49@gmail.com](mailto:rogeryeoh49@gmail.com) ##
