@@ -11,6 +11,7 @@ struct Preferences: Codable {
     var volume = 80.0
     var balance = 0.0
     var eq = [0.0, 0, 0, 0, 0]
+    var eqEnabled: Bool?
     var preset = "Flat"
     var customEQ: [String: [Double]] = [:]
     var visualizer = "Spectrum"
@@ -89,7 +90,9 @@ final class DialState: ObservableObject {
     private var meterTick: Timer?
     private var nextRecognition = Date.distantPast
     private var scheduledStop: Date?
-    private var audioStart: Date?
+    private var audioStart: TimeInterval?
+    private var healthySince: TimeInterval?
+    private var resumedAt: TimeInterval?
     private var offset = 0.0
     private var trackStart = 0.0
     private var loaded = false
@@ -107,12 +110,20 @@ final class DialState: ObservableObject {
         source = prefs.last
         art = prefs.last?.artwork
         audio.setEQ(prefs.eq)
+        audio.setEQEnabled(isEQEnabled)
         applyVolume()
         audio.setBalance(Float(prefs.balance / 100))
-        audio.onStarted = { [weak self] in self?.started() }
+        audio.onStarted = { [weak self] outputTime in self?.started(outputTime: outputTime) }
         audio.onFailure = { [weak self] error in self?.failed(error) }
         audio.onEnded = { [weak self] in self?.stop(message: "Playback finished.") }
         audio.onMetadata = { [weak self] title, artwork in self?.setTrack(title, artwork: artwork) }
+        audio.onRecordingInterrupted = { [weak self] message in
+            guard let self else { return }
+            self.recording = false
+            self.recordStart = nil
+            self.scheduledStop = nil
+            self.status = "Recording: \(message)"
+        }
         audio.onSaved = { [weak self] result in
             switch result {
             case .success(let file): self?.status = "Saved \(file.lastPathComponent)"
@@ -270,7 +281,9 @@ final class DialState: ObservableObject {
         length = 0
         trackStart = position
         meter.reset()
-        audioStart = Date()
+        audioStart = ProcessInfo.processInfo.systemUptime
+        healthySince = nil
+        resumedAt = nil
         nextRecognition = Date().addingTimeInterval(25)
         do {
             try audio.play(item, seek: position, profile: prefs.profile, proxy: prefs.proxy)
@@ -293,6 +306,8 @@ final class DialState: ObservableObject {
             meter.reset()
             status = "Paused"
         case .paused:
+            resumedAt = ProcessInfo.processInfo.systemUptime
+            healthySince = nil
             audio.pause(false)
             playback = .playing
             status = "Playing \(source?.title ?? "")"
@@ -314,8 +329,11 @@ final class DialState: ObservableObject {
         links.clearDiscord(client: prefs.discordID)
     }
 
-    private func started() {
-        if let audioStart { streamLatency = Date().timeIntervalSince(audioStart) }
+    private func started(outputTime: TimeInterval) {
+        if let audioStart {
+            streamLatency = outputTime - audioStart
+            healthySince = outputTime
+        }
         playback = .playing
         status = "Playing \(source?.title ?? "")"
         if let source { links.discord(client: prefs.discordID, title: source.title, detail: track) }
@@ -323,6 +341,10 @@ final class DialState: ObservableObject {
 
     private func failed(_ message: String) {
         guard let source, source.isRadio, retryCount < 3 else { stop(message: message); return }
+        audio.halt()
+        audioStart = nil
+        healthySince = nil
+        resumedAt = nil
         retryCount += 1
         let delay = retryCount * 2
         playback = .connecting
@@ -355,15 +377,52 @@ final class DialState: ObservableObject {
         "Headphones": [2, 0, 1, 2, 2]
     ]
 
-    func applyPreset(_ key: String) {
-        if let values = prefs.customEQ[key] ?? Self.presets[key] { prefs.eq = values; audio.setEQ(values) }
-        prefs.preset = key
+    enum EQBand: String, CaseIterable {
+        case low = "Low", mid = "Mid", high = "High"
+
+        var indices: ClosedRange<Int> {
+            switch self {
+            case .low: return 0...1
+            case .mid: return 2...2
+            case .high: return 3...4
+            }
+        }
     }
 
-    func setGain(_ index: Int, _ value: Double) {
-        prefs.eq[index] = value
-        prefs.preset = "Custom"
-        audio.setEQ(prefs.eq)
+    var isEQEnabled: Bool { prefs.eqEnabled ?? false }
+    var eqPresetNames: [String] {
+        ["Custom"] + Set(Self.presets.keys).union(prefs.customEQ.keys).subtracting(["Custom"]).sorted()
+    }
+
+    func setEQEnabled(_ enabled: Bool) {
+        prefs.eqEnabled = enabled
+        audio.setEQEnabled(enabled)
+    }
+
+    func applyPreset(_ key: String) {
+        var updated = prefs
+        if let values = updated.customEQ[key] ?? Self.presets[key] { updated.eq = values }
+        updated.preset = key
+        updated.eqEnabled = true
+        prefs = updated
+        audio.setEQ(updated.eq)
+        audio.setEQEnabled(true)
+    }
+
+    func gain(for band: EQBand) -> Double {
+        let gains = band.indices.map { prefs.eq.indices.contains($0) ? prefs.eq[$0] : 0 }
+        return (gains.reduce(0, +) / Double(gains.count)).rounded()
+    }
+
+    func setGain(_ band: EQBand, _ value: Double) {
+        guard isEQEnabled else { return }
+        var updated = prefs
+        for index in band.indices where updated.eq.indices.contains(index) {
+            updated.eq[index] = value
+        }
+        updated.preset = "Custom"
+        prefs = updated
+        audio.setEQ(updated.eq)
     }
 
     func favorite(_ item: Source) {
@@ -519,13 +578,31 @@ final class DialState: ObservableObject {
         update()
     }
 
+    private func checkRadioOutput() {
+        guard source?.isRadio == true else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if playback == .connecting, let audioStart, now - audioStart > 15 {
+            failed("The station did not produce audio.")
+        } else if playback == .playing, let output = audio.lastAudioOutput {
+            if now - max(output, resumedAt ?? output) > 8 {
+                failed("The station stopped producing audio.")
+            } else if now - output < 1 {
+                if healthySince == nil { healthySince = output }
+                if let healthySince, now - healthySince > 25 { retryCount = 0 }
+            } else {
+                healthySince = nil
+            }
+        }
+    }
+
     private func update() {
         if playback == .playing || playback == .paused {
             elapsed = offset + audio.elapsed()
             if audio.duration > 0 { length = audio.duration }
         }
         let now = Date()
-        if playback == .playing, let audioStart, now.timeIntervalSince(audioStart) > 25 { retryCount = 0 }
+        checkRadioOutput()
+
         if let sleepEnd {
             let seconds = Int(ceil(sleepEnd.timeIntervalSince(now)))
             if seconds <= 0 {

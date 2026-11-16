@@ -96,9 +96,11 @@ final class StreamAudio {
     private var reader: Decoder?
     private let capture = Capture()
     var onFailure: (String) -> Void = { _ in }
-    var onStarted: () -> Void = {}
+    var onStarted: (TimeInterval) -> Void = { _ in }
     var onMetadata: (String, URL?) -> Void = { _, _ in }
     var onEnded: () -> Void = {}
+    var onRecordingInterrupted: (String) -> Void = { _ in }
+    var lastAudioOutput: TimeInterval? { reader?.lastAudioOutput }
     var onSaved: (Result<URL, Error>) -> Void = { _ in }
     private var icy: ICY?
     private var playlistMetadata: Task<Void, Never>?
@@ -117,6 +119,7 @@ final class StreamAudio {
             band.bandwidth = 1.65
             band.bypass = false
         }
+        capture.onInterrupted = { [weak self] in self?.onRecordingInterrupted($0) }
         capture.onSaved = { [weak self] in self?.onSaved($0) }
     }
 
@@ -133,10 +136,10 @@ final class StreamAudio {
             }
         }
         reader = decoder
-        decoder.onStarted = { [weak self, weak decoder] in
+        decoder.onStarted = { [weak self, weak decoder] outputTime in
             guard let self, self.reader === decoder else { return }
             if isPlaylist && self.playlistMetadata == nil { self.watchPlaylist(source.url, proxy: proxy) }
-            self.onStarted()
+            self.onStarted(outputTime)
         }
         decoder.onExit = { [weak self, weak decoder] decoded, error in
             guard let self, self.reader === decoder else { return }
@@ -180,6 +183,7 @@ final class StreamAudio {
     func setEQ(_ values: [Double]) {
         for (band, gain) in zip(equalizer.bands, values) { band.gain = Float(gain) }
     }
+    func setEQEnabled(_ enabled: Bool) { equalizer.bypass = !enabled }
     func elapsed() -> Double {
         guard let render = node.lastRenderTime, let time = node.playerTime(forNodeTime: render) else { return 0 }
         return max(0, Double(time.sampleTime) / time.sampleRate)
@@ -209,13 +213,15 @@ private final class Decoder {
     private var stopped = false
     private let meterLock = NSLock()
     private var last = MeterFrame()
+    private var outputTime: TimeInterval?
     private var snippets: [Data] = []
     private var details = ""
     private var reportedPlaylist = false
     private var length: Double = 0
-    var onStarted: () -> Void = {}
+    var onStarted: (TimeInterval) -> Void = { _ in }
     var onPlaylist: (URL) -> Void = { _ in }
     var onExit: (Bool, String?) -> Void = { _, _ in }
+    var lastAudioOutput: TimeInterval? { meterLock.withLock { outputTime } }
     var latest: MeterFrame { meterLock.withLock { last } }
     var duration: Double { lock.withLock { length } }
 
@@ -300,16 +306,22 @@ private final class Decoder {
                 capture.append(buffer)
                 node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self, slots] _ in
                     // Display the buffer just heard, rather than audio still in the queue.
-                    if let self { self.meterLock.withLock { self.last = frame } }
+                    if let self {
+                        let outputTime = ProcessInfo.processInfo.systemUptime
+                        let first = self.meterLock.withLock {
+                            let first = self.outputTime == nil
+                            self.outputTime = outputTime
+                            self.last = frame
+                            return first
+                        }
+                        if first { DispatchQueue.main.async { self.onStarted(outputTime) } }
+                    }
                     slots.signal()
                 }
                 return true
             }
             if !queued { break }
-            if !started {
-                started = true
-                DispatchQueue.main.async { self.onStarted() }
-            }
+            started = true
             pending.removeAll(keepingCapacity: true)
             if bytes.isEmpty { break }
         }
@@ -362,19 +374,29 @@ private final class Capture {
         var frames = 0
     }
     private let lock = NSLock()
+    private let writer = DispatchQueue(label: "RadioDial.recording-write")
     private let conversion = DispatchQueue(label: "RadioDial.recording-encode")
+    private var generation = 0
+    private var accepting = false
+    private var queuedBuffers = 0
+
+    // The writer queue exclusively owns the open recording.
     private var part: Part?
     private var source: Source?
     private var options = CaptureOptions()
     var onSaved: (Result<URL, Error>) -> Void = { _ in }
+    var onInterrupted: (String) -> Void = { _ in }
 
     func start(_ source: Source, options: CaptureOptions, title: String) throws {
-        try lock.withLock {
-            guard part == nil else { return }
+        try writer.sync {
             try FileManager.default.createDirectory(at: options.folder, withIntermediateDirectories: true)
             self.options = options
             self.source = source
             part = try makePart(title: title)
+            lock.withLock {
+                generation += 1
+                accepting = true
+            }
         }
     }
 
@@ -394,30 +416,69 @@ private final class Capture {
 
     func append(_ buffer: AVAudioPCMBuffer) {
         lock.withLock {
-            guard let file = part?.file else { return }
-            do {
-                try file.write(from: buffer)
-                part?.frames += Int(buffer.frameLength)
-            } catch {
-                finishLocked()
-                DispatchQueue.main.async { self.onSaved(.failure(error)) }
+            guard accepting else { return }
+            let recording = generation
+            guard queuedBuffers < 64 else {
+                accepting = false
+                writer.async {
+                    self.finishPart()
+                    self.reportInterrupted("Disk writes fell behind. Recording stopped.", recording: recording)
+                }
+                return
+            }
+            queuedBuffers += 1
+            writer.async {
+                defer { self.lock.withLock { self.queuedBuffers -= 1 } }
+                guard let file = self.part?.file else { return }
+                do {
+                    try file.write(from: buffer)
+                    self.part?.frames += Int(buffer.frameLength)
+                } catch {
+                    self.interrupt(error, recording: recording)
+                }
             }
         }
     }
 
     func split(_ title: String) {
         lock.withLock {
-            guard options.split, !title.isEmpty, let part, part.title != title else { return }
-            finishLocked()
-            do { self.part = try makePart(title: title) }
-            catch { DispatchQueue.main.async { self.onSaved(.failure(error)) } }
+            guard accepting, !title.isEmpty else { return }
+            let recording = generation
+            writer.async {
+                guard self.options.split, let part = self.part, part.title != title else { return }
+                self.finishPart()
+                do { self.part = try self.makePart(title: title) }
+                catch { self.interrupt(error, recording: recording) }
+            }
         }
     }
 
-    func finish() { lock.withLock { finishLocked() } }
-    func afterSaved(_ handler: @escaping () -> Void) { conversion.async { DispatchQueue.main.async(execute: handler) } }
+    func finish() {
+        lock.withLock {
+            accepting = false
+            generation += 1
+            writer.async { self.finishPart() }
+        }
+    }
 
-    private func finishLocked() {
+    func afterSaved(_ handler: @escaping () -> Void) {
+        writer.async { self.conversion.async { DispatchQueue.main.async(execute: handler) } }
+    }
+
+    private func interrupt(_ error: Error, recording: Int) {
+        lock.withLock { if generation == recording { accepting = false } }
+        finishPart()
+        reportInterrupted(error.localizedDescription, recording: recording)
+    }
+
+    private func reportInterrupted(_ message: String, recording: Int) {
+        DispatchQueue.main.async {
+            guard self.lock.withLock({ self.generation == recording }) else { return }
+            self.onInterrupted(message)
+        }
+    }
+
+    private func finishPart() {
         guard var saved = part else { return }
         part = nil
         saved.file = nil

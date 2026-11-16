@@ -25,6 +25,7 @@ private struct DialWindow: View {
     @State private var filesTab = 0
     @State private var clearHistory = false
     @State private var showReceiverLibrary = false
+    @State private var showEQPresets = false
     @State private var seeking = false
     @State private var seekValue = 0.0
     @State private var fullFrame: NSRect?
@@ -266,15 +267,12 @@ private struct DialWindow: View {
             Spacer(minLength: 2)
             if !dial.mini {
                 Rectangle().fill(.white.opacity(0.09)).frame(width: 1, height: 49)
-                Picker("Equalizer Preset", selection: Binding(get: { dial.prefs.preset }, set: { dial.applyPreset($0) })) {
-                    Text("Custom").tag("Custom")
-                    ForEach(Array(Set(DialState.presets.keys).union(dial.prefs.customEQ.keys)).sorted(), id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden().frame(width: 112)
-                ForEach(0..<5) { index in
-                    let names = ["60", "250", "1K", "4K", "16K"]
-                    let colors: [Color] = [Color(rgb: 0xFF6172), .orange, palette.signal, Color(rgb: 0x47A4FF), Color(rgb: 0xB781F0)]
-                    DialKnob(label: names[index], value: dial.prefs.eq[index], range: -12...12, neutral: 0, tint: colors[index]) { dial.setGain(index, $0) }
+                eqButton
+                ForEach(DialState.EQBand.allCases, id: \.self) { band in
+                    DialKnob(label: band.rawValue, value: dial.gain(for: band), range: -12...12, neutral: 0,
+                             tint: dial.isEQEnabled ? eqTint(band) : palette.secondary) { dial.setGain(band, $0) }
+                        .disabled(!dial.isEQEnabled)
+                        .opacity(dial.isEQEnabled ? 1 : 0.55)
                 }
                 Rectangle().fill(.white.opacity(0.09)).frame(width: 1, height: 49)
             }
@@ -285,9 +283,74 @@ private struct DialWindow: View {
         .padding(.vertical, dial.mini ? 0 : 2)
     }
 
+    private var eqButton: some View {
+        let enabled = dial.isEQEnabled
+        return roundButton("EQ", tint: palette.signal, active: enabled) {
+            if !enabled { dial.setEQEnabled(true) }
+            showEQPresets.toggle()
+        } label: {
+            Text("EQ").font(.system(size: 12, weight: .bold, design: .monospaced))
+        }
+        .accessibilityValue(enabled ? "On, \(dial.prefs.preset)" : "Off")
+        .popover(isPresented: $showEQPresets, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("EQ Presets").font(.headline)
+                    Spacer()
+                    Button("Turn EQ Off") {
+                        dial.setEQEnabled(false)
+                        showEQPresets = false
+                    }
+                }
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                        ForEach(dial.eqPresetNames, id: \.self) { name in
+                            let selected = dial.prefs.preset == name
+                            Button {
+                                dial.applyPreset(name)
+                                showEQPresets = false
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(name).lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if selected { Image(systemName: "checkmark") }
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(selected ? palette.signal.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected ? [.isSelected] : [])
+                        }
+                    }
+                }
+                .frame(height: 244)
+            }
+            .padding(12)
+            .frame(width: 300)
+        }
+    }
+
+    private func eqTint(_ band: DialState.EQBand) -> Color {
+        switch band {
+        case .low: return .orange
+        case .mid: return palette.signal
+        case .high: return Color(rgb: 0x47A4FF)
+        }
+    }
+
     private func round(_ title: String, _ icon: String, tint: Color, active: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        roundButton(title, tint: tint, active: active, action: action) {
             Image(systemName: icon).font(.system(size: 15, weight: .semibold))
+        }
+    }
+
+    private func roundButton<Label: View>(_ title: String, tint: Color, active: Bool, action: @escaping () -> Void,
+                                          @ViewBuilder label: () -> Label) -> some View {
+        Button(action: action) {
+            label()
                 .frame(width: dial.mini ? 32 : 40, height: dial.mini ? 32 : 40)
                 .foregroundStyle(active ? Color.white : tint)
                 .background(LinearGradient(colors: active ? [tint.opacity(0.78), tint.opacity(0.17)] : [.white.opacity(0.08), .black.opacity(0.08)],

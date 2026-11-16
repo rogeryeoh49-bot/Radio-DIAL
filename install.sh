@@ -12,7 +12,7 @@ install_radio_dial() (
         return 1
     fi
 
-    release="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v1.0.0"
+    release="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v1.0.1"
     applications="$HOME/Applications"
     app="$applications/Radio Dial.app"
     tools="$HOME/Library/Application Support/Radio Dial/Tools"

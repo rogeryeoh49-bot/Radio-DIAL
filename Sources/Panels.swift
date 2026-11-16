@@ -264,8 +264,7 @@ struct PanelBody: View {
     private var presets: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Load preset", selection: Binding(get: { dial.prefs.preset }, set: { dial.applyPreset($0) })) {
-                Text("Custom").tag("Custom")
-                ForEach(Array(Set(DialState.presets.keys).union(dial.prefs.customEQ.keys)).sorted(), id: \.self) { Text($0).tag($0) }
+                ForEach(dial.eqPresetNames, id: \.self) { Text($0).tag($0) }
             }
             HStack {
                 TextField("New preset name", text: $title)
@@ -282,7 +281,7 @@ struct PanelBody: View {
                     }
                 }
             }
-            Text("Drag the five knobs on the player to adjust the sound. Double-click a knob to reset it.").font(.caption).foregroundStyle(.secondary)
+            Text("Turn on EQ, then drag the Low, Mid, or High knob to adjust the sound. Double-click a knob to reset it.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -310,9 +309,14 @@ struct PanelBody: View {
 
     private var about: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Radio Dial 1.0 · Apple silicon").font(.headline)
+            Text("Radio Dial \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")").font(.headline)
+            HStack(spacing: 4) {
+                Text("By")
+                Link("Roger Yeoh", destination: URL(string: "https://github.com/rogeryeoh49-bot")!)
+            }
             Text("An independent internet radio and podcast player for macOS.")
             HStack {
+                Link("Project on GitHub", destination: URL(string: "https://github.com/rogeryeoh49-bot/Radio-DIAL")!)
                 Link("Radio Browser", destination: URL(string: "https://www.radio-browser.info")!)
                 Link("LRCLIB", destination: URL(string: "https://lrclib.net")!)
                 Link("FFmpeg", destination: URL(string: "https://ffmpeg.org")!)
