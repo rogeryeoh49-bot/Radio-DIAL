@@ -8,6 +8,13 @@ Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide
 
 **ALL FREE**. It is impossible to find a pure radio player that doesn't ask you to spend money. At least, I've never found one on either iOS or macOS. Yes, so I made a pure radio player to give you access to completely free radio worldwide. Full of features to fit any needs.
 
+## What’s new in 2.0
+
+- Browse stations with Cover Flow, trackpad gestures, and keyboard controls.
+- Choose from four color themes, the FR-01 receiver, and Cover Flow.
+- Open matched songs in Apple Music and control playback through macOS.
+- The FR-01 uses frequencies inferred from station names and streams stations over the internet; its catalog does not verify over-the-air broadcasts.
+
 ## Install on Mac
 
 Paste this line into Terminal on macOS 14 or later. It works on Apple silicon and Intel Macs.

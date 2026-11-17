@@ -12,20 +12,29 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     @ObservedObject var dial: DialState
     let country: Country
     let tools: Tools
-    @State private var preview: Int?
+    @State private var previewFrequency: Double?
     @State private var pendingTune: Task<Void, Never>?
     @State private var tuningKnobStart: Double?
     @State private var volumeStart: Double?
 
-    private var currentIndex: Int? { dial.stations.firstIndex { $0.id == dial.source?.id } }
-    private var index: Int? { preview ?? currentIndex }
-    private var position: Double {
-        guard let index, dial.stations.count > 1 else { return 0 }
-        return Double(index) / Double(dial.stations.count - 1)
+    private var fmStations: [Source] {
+        var seen = Set<String>()
+        return (dial.stations + dial.prefs.favorites + (dial.source.map { [$0] } ?? []))
+            .filter { $0.fmFrequency != nil && seen.insert($0.id).inserted }
+            .sorted { ($0.fmFrequency ?? 0) < ($1.fmFrequency ?? 0) }
     }
-    private var previewStation: Source? { preview.flatMap { dial.stations.indices.contains($0) ? dial.stations[$0] : nil } }
+    private var displayedFrequency: Double? { previewFrequency ?? dial.source?.fmFrequency }
+    private var position: Double { displayedFrequency.map { min(1, max(0, ($0 - 88) / 20)) } ?? 0 }
+    private var previewStation: Source? {
+        guard let frequency = previewFrequency else { return nil }
+        return fmStations.first { $0.fmFrequency.map { abs($0 - frequency) < 0.001 } ?? false }
+    }
+    private var displayedStation: Source? {
+        if previewFrequency != nil { return previewStation }
+        return dial.source?.fmFrequency == nil ? nil : dial.source
+    }
     private static var presetCount: Int { 4 }
-    private var presets: [Source] { Array(dial.prefs.favorites.lazy.filter(\.isRadio).prefix(Self.presetCount)) }
+    private var presets: [Source] { Array(dial.prefs.favorites.lazy.filter { $0.fmFrequency != nil }.prefix(Self.presetCount)) }
 
     var body: some View {
         GeometryReader { geometry in
@@ -43,19 +52,18 @@ struct RadioReceiver<Country: View, Tools: View>: View {
             }
             .padding(.horizontal, 33)
             .padding(.vertical, 22)
-            .frame(height: min(geometry.size.height - 32, (geometry.size.width - 32) / 1.76))
+            .frame(width: geometry.size.width, height: geometry.size.height)
             .background { ReceiverMetal() }
-            .clipShape(.rect(cornerRadius: 24))
-            .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.82), lineWidth: 2) }
+            .overlay { Rectangle().strokeBorder(.white.opacity(0.55), lineWidth: 1) }
             .overlay { screws.allowsHitTesting(false) }
-            .shadow(color: .black.opacity(0.48), radius: 8, x: 0, y: 8)
-            .padding(16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .foregroundStyle(RadioReceiverStyle.ink)
         .background(Color(rgb: 0x262C2A))
         .onChange(of: dial.source?.id) { _, _ in cancelTune() }
         .onChange(of: dial.busy) { _, busy in if busy { cancelTune() } }
+        .onAppear {
+            if dial.source?.fmFrequency == nil, dial.playback != .stopped { dial.stop(message: "Select an FM station") }
+        }
         .onDisappear { cancelTune() }
     }
 
@@ -77,26 +85,30 @@ struct RadioReceiver<Country: View, Tools: View>: View {
         VStack(alignment: .leading, spacing: 15) {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 7) {
-                    label("DIAL POSITION", illuminated: true)
-                    Text(index == nil ? "—" : (88 + 20 * position).formatted(.number.precision(.fractionLength(1))))
+                    label("FM FREQUENCY", illuminated: true)
+                    Text(displayedFrequency.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—")
                         .font(.system(size: 59, weight: .medium, design: .monospaced))
                         .monospacedDigit()
                         .foregroundStyle(RadioReceiverStyle.amber)
                         .lineLimit(1).minimumScaleFactor(0.65)
-                        .accessibilityLabel("Dial position")
-                        .accessibilityValue(index == nil ? "Not tuned" : (88 + 20 * position).formatted(.number.precision(.fractionLength(1))))
+                        .accessibilityLabel("FM frequency")
+                        .accessibilityValue(displayedFrequency.map { "\($0.formatted(.number.precision(.fractionLength(1)))) megahertz" } ?? "Unavailable")
                 }
                 .frame(width: 174, alignment: .leading)
                 Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: 78)
                 VStack(alignment: .leading, spacing: 7) {
-                    label(preview != nil ? "TUNING" : "NOW TUNED", illuminated: true)
-                    Text(previewStation?.title ?? dial.source?.title ?? "Choose a station")
+                    label(previewFrequency != nil ? "TUNING" : "NOW TUNED", illuminated: true)
+                    Text(displayedStation?.title ?? "—")
                         .font(.system(size: 23, weight: .semibold)).lineLimit(2)
                         .foregroundStyle(RadioReceiverStyle.dialText)
                     Text(displaySubtitle)
                         .font(.system(size: 13)).lineLimit(2)
                         .foregroundStyle(RadioReceiverStyle.dialText.opacity(0.74))
                         .help(displaySubtitle)
+                    if previewFrequency == nil, displayedStation != nil, !dial.track.isEmpty, dial.playback != .stopped,
+                       let url = dial.appleMusicURL {
+                        AppleMusicButton(url: url, color: RadioReceiverStyle.amber)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -119,7 +131,8 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     }
 
     private var displaySubtitle: String {
-        if preview != nil { return "Tuning…" }
+        if previewFrequency != nil { return previewStation == nil ? "—" : "Tuning…" }
+        guard displayedStation != nil else { return "—" }
         if !dial.track.isEmpty { return dial.track }
         if dial.busy { return "Loading stations…" }
         return dial.source?.subtitle.nonempty ?? dial.status
@@ -142,8 +155,8 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                 base.move(to: CGPoint(x: 0, y: bottom))
                 base.addLine(to: CGPoint(x: size.width, y: bottom))
                 context.stroke(base, with: .color(.white.opacity(0.25)), lineWidth: 0.8)
-                if index != nil {
-                    let x = min(size.width - 4, max(4, size.width * position))
+                if let frequency = displayedFrequency, (88...108).contains(frequency) {
+                    let x = min(size.width - 4, max(4, size.width * (frequency - 88) / 20))
                     var needle = Path()
                     needle.move(to: CGPoint(x: x, y: bottom + 2))
                     needle.addLine(to: CGPoint(x: x, y: 5))
@@ -168,11 +181,11 @@ struct RadioReceiver<Country: View, Tools: View>: View {
         }
         .padding(.horizontal, 5)
         .overlay {
-            ReceiverTuningInput(drag: selectPosition, scroll: scrollStations)
+            ReceiverTuningInput(drag: selectFrequency, scroll: { scrollStations($0, haptic: true) })
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Station tuning scale")
-        .accessibilityValue(previewStation?.title ?? dial.source?.title ?? "Not tuned")
+        .accessibilityValue(displayedStation?.title ?? "No station")
         .accessibilityHint("Drag across the scale or scroll to tune")
         .accessibilityAdjustableAction { direction in
             switch direction {
@@ -189,8 +202,8 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                 VStack(spacing: 11) {
                     label("PLAYBACK")
                     Button {
-                        cancelTune()
-                        dial.togglePlayback()
+                        if previewFrequency != nil { commitTune() }
+                        else if dial.source?.fmFrequency != nil { dial.togglePlayback() }
                     } label: {
                         ReceiverKeyLabel(symbol: dial.playback == .playing ? "pause.fill" : "play.fill", active: dial.playback == .playing)
                     }
@@ -209,7 +222,7 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                         Button {
                             guard let source else { return }
                             cancelTune()
-                            dial.play(source)
+                            dial.tune(source)
                         } label: {
                             ReceiverKeyLabel(text: number, active: source?.id == dial.source?.id && source != nil)
                         }
@@ -307,17 +320,32 @@ struct RadioReceiver<Country: View, Tools: View>: View {
             .foregroundStyle(illuminated ? RadioReceiverStyle.dialText.opacity(0.68) : RadioReceiverStyle.ink)
     }
 
-    private func selectPosition(_ fraction: Double, _ commit: Bool) {
-        guard !dial.busy, !dial.stations.isEmpty else { return }
+    private func selectFrequency(_ fraction: Double, _ commit: Bool) {
+        guard !dial.busy else { return }
         pendingTune?.cancel()
-        preview = Int((min(1, max(0, fraction)) * Double(dial.stations.count - 1)).rounded())
+        previewFrequency = Double(min(1080, max(880, Int((880 + 200 * fraction).rounded())))) / 10
         if commit { commitTune() }
     }
 
-    private func scrollStations(_ steps: Int) {
-        guard !dial.busy, !dial.stations.isEmpty, steps != 0 else { return }
-        let initial = steps > 0 ? -1 : dial.stations.count
-        preview = min(dial.stations.count - 1, max(0, (index ?? initial) + steps))
+    private func selectPosition(_ fraction: Double, _ commit: Bool) {
+        selectFrequency(fraction, commit)
+    }
+
+    private func scrollStations(_ steps: Int, haptic: Bool = false) {
+        guard !dial.busy, steps != 0 else { return }
+        let previous = Int(((displayedFrequency ?? 88) * 10).rounded())
+        let next = min(1080, max(880, previous + steps))
+        previewFrequency = Double(next) / 10
+        if haptic, previous != next {
+            let crossed = fmStations.filter { station in
+                guard let frequency = station.fmFrequency else { return false }
+                let channel = Int((frequency * 10).rounded())
+                return next > previous ? channel > previous && channel <= next : channel < previous && channel >= next
+            }
+            for station in crossed {
+                StationHaptics.crossed(from: -1, to: 0, stations: [station], favorites: dial.prefs.favorites)
+            }
+        }
         pendingTune?.cancel()
         pendingTune = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(220))
@@ -326,16 +354,23 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     }
 
     private func commitTune() {
-        guard !dial.busy, let station = previewStation else { cancelTune(); return }
-        cancelTune()
-        if dial.source?.id != station.id || dial.playback == .stopped { dial.play(station) }
+        guard !dial.busy, previewFrequency != nil else { return }
+        pendingTune?.cancel()
+        pendingTune = nil
+        if let station = previewStation {
+            previewFrequency = nil
+            if dial.source?.id != station.id || dial.playback == .stopped { dial.tune(station) }
+        } else {
+            dial.stop(message: "No station on this frequency")
+        }
     }
 
     private func cancelTune() {
         pendingTune?.cancel()
         pendingTune = nil
-        preview = nil
+        previewFrequency = nil
     }
+
 }
 
 private struct ReceiverTuningInput: NSViewRepresentable {
@@ -366,7 +401,7 @@ private struct ReceiverTuningInput: NSViewRepresentable {
         override func scrollWheel(with event: NSEvent) {
             let horizontal = Double(event.scrollingDeltaX)
             let vertical = Double(event.scrollingDeltaY)
-            let delta = abs(horizontal) > abs(vertical) ? -horizontal : -vertical
+            let delta = abs(horizontal) > abs(vertical) ? horizontal : vertical
             if !event.hasPreciseScrollingDeltas {
                 scroll(delta == 0 ? 0 : (delta > 0 ? 1 : -1))
                 return
@@ -416,7 +451,7 @@ struct ReceiverKeyFace: ViewModifier {
     }
 }
 
-private struct ReceiverMetal: View {
+struct ReceiverMetal: View {
     var body: some View {
         LinearGradient(stops: [.init(color: Color(rgb: 0xF4F5F0), location: 0), .init(color: Color(rgb: 0xAFB7B2), location: 0.41),
                                .init(color: Color(rgb: 0xE4E7E1), location: 0.73), .init(color: Color(rgb: 0xA3ACA7), location: 1)],
@@ -505,5 +540,26 @@ struct ReceiverThemePreview: View {
         .clipShape(.rect(cornerRadius: 7))
         .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(.black.opacity(0.40)) }
         .accessibilityHidden(true)
+    }
+}
+
+enum StationHaptics {
+    static func crossed(from old: Int, to new: Int, stations: [Source], favorites: [Source]) {
+        guard old != new else { return }
+        let favoriteIDs = Set(favorites.map(\.id))
+        let direction = new > old ? 1 : -1
+        let first = max(0, min(stations.count - 1, old + direction))
+        let last = max(0, min(stations.count - 1, new))
+        guard stations.indices.contains(first), stations.indices.contains(last) else { return }
+        for index in stride(from: first, through: last, by: direction) {
+            let favorite = favoriteIDs.contains(stations[index].id)
+            let pattern: NSHapticFeedbackManager.FeedbackPattern = favorite ? .levelChange : .alignment
+            NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
+            if favorite {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.065) {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                }
+            }
+        }
     }
 }

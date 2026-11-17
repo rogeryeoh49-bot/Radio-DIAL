@@ -89,9 +89,39 @@ private final class Analyzer {
     }
 }
 
+enum TuningStatic {
+    static func makeBuffer() -> AVAudioPCMBuffer? {
+        let format = AudioTools.format
+        let count = Int(format.sampleRate * 2)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)),
+              let channels = buffer.floatChannelData else { return nil }
+        buffer.frameLength = AVAudioFrameCount(count)
+
+        var generator: UInt32 = 0x6e49_2531
+        var upper: Float = 0
+        var lower: Float = 0
+        for index in 0..<count {
+            generator = 1_664_525 &* generator &+ 1_013_904_223
+            let noise = Float(generator >> 8) / 8_388_608 - 1
+            let time = Float(index) / Float(count - 1)
+            // Vary the filter and level gently over the loop.
+            upper += (0.32 + 0.10 * sin(4 * .pi * time)) * (noise - upper)
+            lower += 0.036 * (noise - lower)
+            let edgeFade = min(1, min(time, 1 - time) / 0.004)
+            let flutter = 0.82 + 0.18 * cos(14 * .pi * time)
+            let sample = 0.15 * (upper - lower) * edgeFade * flutter
+            channels[0][index] = sample
+            channels[1][index] = sample
+        }
+        return buffer
+    }
+}
+
 final class StreamAudio {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
+    private let tuningNode = AVAudioPlayerNode()
+    private lazy var tuningSound = TuningStatic.makeBuffer()
     private let equalizer = AVAudioUnitEQ(numberOfBands: 5)
     private var reader: Decoder?
     private let capture = Capture()
@@ -109,6 +139,8 @@ final class StreamAudio {
 
     init() {
         engine.attach(node)
+        engine.attach(tuningNode)
+        engine.connect(tuningNode, to: engine.mainMixerNode, format: AudioTools.format)
         engine.attach(equalizer)
         engine.connect(node, to: equalizer, format: AudioTools.format)
         engine.connect(equalizer, to: engine.mainMixerNode, format: AudioTools.format)
@@ -123,7 +155,7 @@ final class StreamAudio {
         capture.onSaved = { [weak self] in self?.onSaved($0) }
     }
 
-    func play(_ source: Source, seek: Double = 0, profile: String = "Balanced", proxy: String = "") throws {
+    func play(_ source: Source, seek: Double = 0, profile: String = "Balanced", proxy: String = "", tuningEffect: Bool = false) throws {
         halt()
         guard let executable = AudioTools.ffmpeg else { throw DialError.missingDecoder }
         if !engine.isRunning { try engine.start() }
@@ -138,6 +170,7 @@ final class StreamAudio {
         reader = decoder
         decoder.onStarted = { [weak self, weak decoder] outputTime in
             guard let self, self.reader === decoder else { return }
+            self.tuningNode.stop()
             if isPlaylist && self.playlistMetadata == nil { self.watchPlaylist(source.url, proxy: proxy) }
             self.onStarted(outputTime)
         }
@@ -148,6 +181,10 @@ final class StreamAudio {
         }
         try decoder.start(executable: executable, source: source, seek: seek, profile: profile, proxy: proxy)
         node.play()
+        if tuningEffect, let tuningSound {
+            tuningNode.scheduleBuffer(tuningSound, at: nil, options: .loops)
+            tuningNode.play()
+        }
         if source.isRadio && !isPlaylist {
             let monitor = ICY()
             icy = monitor
@@ -175,10 +212,14 @@ final class StreamAudio {
         reader?.stop()
         reader = nil
         node.stop()
+        tuningNode.stop()
     }
 
     func pause(_ paused: Bool) { if paused { node.pause() } else { node.play() } }
-    func setVolume(_ value: Float) { node.volume = value }
+    func setVolume(_ value: Float) {
+        node.volume = value
+        tuningNode.volume = value
+    }
     func setBalance(_ value: Float) { node.pan = value }
     func setEQ(_ values: [Double]) {
         for (band, gain) in zip(equalizer.bands, values) { band.gain = Float(gain) }
@@ -201,13 +242,55 @@ final class StreamAudio {
     }
 }
 
+private final class DecoderBuffers {
+    private let condition = NSCondition()
+    private let capacity = 9
+    private var outstanding = 0
+    private var cancelled = false
+
+    func reserve() -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        while outstanding >= capacity && !cancelled { condition.wait() }
+        guard !cancelled else { return false }
+        outstanding += 1
+        return true
+    }
+
+    func finish() {
+        condition.lock()
+        outstanding -= 1
+        condition.signal()
+        condition.unlock()
+    }
+
+    func cancel() {
+        condition.lock()
+        cancelled = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func waitUntilDrained() {
+        condition.lock()
+        defer { condition.unlock() }
+        while outstanding > 0 && !cancelled {
+            let count = outstanding
+            let deadline = Date().addingTimeInterval(0.65)
+            while outstanding == count && !cancelled {
+                if !condition.wait(until: deadline) { return }
+            }
+        }
+    }
+}
+
 private final class Decoder {
     private let node: AVAudioPlayerNode
     private let capture: Capture
     private let process = Process()
     private let output = Pipe()
     private let errors = Pipe()
-    private let slots: DispatchSemaphore
+    private let buffers = DecoderBuffers()
     private let analyzer = Analyzer()
     private let lock = NSLock()
     private var stopped = false
@@ -228,7 +311,6 @@ private final class Decoder {
     init(node: AVAudioPlayerNode, capture: Capture) {
         self.node = node
         self.capture = capture
-        slots = DispatchSemaphore(value: 9)
     }
 
     func start(executable: URL, source: Source, seek: Double, profile: String, proxy: String) throws {
@@ -272,7 +354,7 @@ private final class Decoder {
 
     func stop() {
         lock.withLock { stopped = true }
-        slots.signal()
+        buffers.cancel()
         if process.isRunning { process.terminate() }
     }
 
@@ -287,8 +369,6 @@ private final class Decoder {
             if pending.count < batch && !bytes.isEmpty { continue }
             let count = pending.count / 8
             if count == 0 { break }
-            slots.wait()
-            if lock.withLock({ stopped }) { break }
             guard let buffer = AVAudioPCMBuffer(pcmFormat: AudioTools.format, frameCapacity: AVAudioFrameCount(count)),
                   let channels = buffer.floatChannelData else { break }
             buffer.frameLength = AVAudioFrameCount(count)
@@ -298,13 +378,14 @@ private final class Decoder {
                     channels[1][i] = raw.loadUnaligned(fromByteOffset: i * 8 + 4, as: Float.self)
                 }
             }
+            guard buffers.reserve() else { break }
             let frame = analyzer.frame(buffer)
             let queued = lock.withLock {
                 guard !stopped else { return false }
                 snippets.append(pending)
                 if snippets.count > 300 { snippets.removeFirst() }
                 capture.append(buffer)
-                node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self, slots] _ in
+                node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self, buffers] _ in
                     // Display the buffer just heard, rather than audio still in the queue.
                     if let self {
                         let outputTime = ProcessInfo.processInfo.systemUptime
@@ -316,21 +397,19 @@ private final class Decoder {
                         }
                         if first { DispatchQueue.main.async { self.onStarted(outputTime) } }
                     }
-                    slots.signal()
+                    buffers.finish()
                 }
                 return true
             }
-            if !queued { break }
+            if !queued {
+                buffers.finish()
+                break
+            }
             started = true
             pending.removeAll(keepingCapacity: true)
             if bytes.isEmpty { break }
         }
-        if !lock.withLock({ stopped }) {
-            for _ in 0..<9 {
-                if lock.withLock({ stopped }) { break }
-                if slots.wait(timeout: .now() + 0.65) == .timedOut { break }
-            }
-        }
+        buffers.waitUntilDrained()
         if lock.withLock({ stopped }) { return }
         let wasStarted = started
         let message = lock.withLock {

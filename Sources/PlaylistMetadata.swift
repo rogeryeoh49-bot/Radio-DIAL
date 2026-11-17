@@ -60,6 +60,17 @@ struct PlaylistMetadata: Equatable {
         return PlaylistMetadata(name: name, artwork: artwork)
     }
 
+    static func icyTrack(_ text: String) -> PlaylistMetadata? {
+        guard text.lowercased().hasPrefix("title=\""),
+              let title = field("title", in: text) else { return nil }
+        let artist = field("artist", in: text)
+        let artwork = field("amgArtworkURL", in: text, boundary: #"\b"#).flatMap(Catalog.webURL)
+        if artist == nil, artwork == nil, let spot = field("song_spot", in: text, boundary: #"\b"#), spot != "M" {
+            return PlaylistMetadata(name: "", artwork: nil)
+        }
+        return PlaylistMetadata(name: [artist, title].compactMap { $0 }.joined(separator: " – "), artwork: artwork)
+    }
+
     private static func field(_ key: String, in text: String, boundary: String = #"(?:^|,)\s*"#) -> String? {
         let pattern = boundary + key + #"="((?:\\.|[^"\\])*)""#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),

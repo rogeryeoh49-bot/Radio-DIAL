@@ -4,38 +4,68 @@ struct DialPalette {
     let name: String
     let base, panel, inset, accent, text: Color
     let light: Bool
-    var line: Color { accent.opacity(0.24) }
-    var secondary: Color { text.opacity(0.55) }
-    var signal: Color { Color(rgb: 0x00C2A1) }
+    var line: Color { accent.opacity(light ? 0.34 : 0.30) }
+    var secondary: Color { text.opacity(light ? 0.72 : 0.68) }
+    var signal: Color {
+        switch name {
+        case "Porcelain": return Color(rgb: 0x215F58)
+        case "vice city": return Color(rgb: 0xFF91C3)
+        case "eternal sunshine": return Color(rgb: 0xE4B078)
+        case "Graphite": return Color(rgb: 0xCFD8E0)
+        default: return Color(rgb: 0x00C2A1)
+        }
+    }
+    var displayBackground: Color {
+        switch name {
+        case "Porcelain": return Color(rgb: 0xE2E8E0)
+        case "vice city": return Color(rgb: 0x1B102D)
+        case "eternal sunshine": return Color(rgb: 0x1A1411)
+        case "Graphite": return Color(rgb: 0x151719)
+        default: return light ? inset : Color(rgb: 0x11171B)
+        }
+    }
+    var scopeBackground: Color {
+        switch name {
+        case "Porcelain": return Color(rgb: 0x183D3B)
+        case "vice city": return Color(rgb: 0x100C2A)
+        case "eternal sunshine": return Color(rgb: 0x211612)
+        case "Graphite": return Color(rgb: 0x111417)
+        default: return Color(rgb: 0x101926)
+        }
+    }
+    var scopeSignal: Color { name == "vice city" ? Color(rgb: 0x78E4E7) : (light ? Color(rgb: 0xA5D1BF) : signal) }
 
     init(_ name: String) {
         self.name = name
         let values: [String: [UInt32]] = [
+            "Cover Flow": [0x121212, 0x242424, 0x161616, 0xD5D5D5, 0xF5F5F5],
             "FR-01 Receiver": [0xB5B9B6, 0xD6D9D5, 0xC6CBC6, 0x7C5A2D, 0x202724],
-            "Vintage Wood": [0x15181D, 0x20242E, 0x2E231C, 0xD09D70, 0xF4E3D1],
-            "Dark Modern": [0x14171A, 0x20242B, 0x111419, 0x56A5FC, 0xF0F2F5],
-            "Light Glass": [0xEAF0F7, 0xF7FAFC, 0xE2EAF3, 0x006C9C, 0x15253B],
-            "Neon Cyberpunk": [0x0A0A12, 0x17152A, 0x0F1020, 0xFF58EB, 0xEFE5FF],
-            "Retro Terminal": [0x100C08, 0x251B11, 0x18110A, 0xFFAE38, 0xFFE2A5],
-            "Midnight Flat": [0x0D1117, 0x161B22, 0x11161D, 0x79C0FF, 0xF0F6FC],
-            "Forest Organic": [0x0A1510, 0x172A1F, 0x101B15, 0x83CF91, 0xE8F5E9],
-            "Ocean Waves": [0x051520, 0x0B2838, 0x071C28, 0x62D9ED, 0xE0F7FA],
-            "Sunset 3D": [0x1A0F0A, 0x382119, 0x27150E, 0xFFA264, 0xFFF3E0],
-            "Monochrome": [0x090909, 0x161616, 0x101010, 0xBBBBBB, 0xF7F7F7],
-            "Cherry Blossom": [0x1A0A10, 0x341926, 0x231018, 0xFF94B8, 0xFFE0EC],
-            "Terminal Hacker": [0x061207, 0x0C2110, 0x081B0B, 0x67F578, 0xC4FFC7]
+            "Porcelain": [0xECEAE5, 0xFAF9F5, 0xE4E5DF, 0x38645F, 0x202D2C],
+            "vice city": [0x120B22, 0x241538, 0x1B102D, 0xF797C8, 0xF8EAF6],
+            "eternal sunshine": [0x191411, 0x29211D, 0x201713, 0xD8A77E, 0xF7E9DA],
+            "Graphite": [0x111214, 0x232528, 0x16181A, 0xB9C3CD, 0xF1F3F4]
         ]
-        let colors = values[name] ?? values["Vintage Wood"]!
+        let colors = values[name] ?? values["vice city"]!
         base = Color(rgb: colors[0])
         panel = Color(rgb: colors[1])
         inset = Color(rgb: colors[2])
         accent = Color(rgb: colors[3])
         text = Color(rgb: colors[4])
-        light = name == "Light Glass" || name == RadioReceiverStyle.name
+        light = name == "Porcelain" || name == RadioReceiverStyle.name
     }
 
-    static let themes = ["Vintage Wood", "Dark Modern", "Light Glass", "Neon Cyberpunk", "Retro Terminal", "Midnight Flat",
-                         "Forest Organic", "Ocean Waves", "Sunset 3D", "Monochrome", "Cherry Blossom", "Terminal Hacker"]
+    static let themes = ["Porcelain", "Graphite", "eternal sunshine", "vice city"]
+
+    static func currentTheme(_ name: String) -> String {
+        if themes.contains(name) || name == "Cover Flow" || name == RadioReceiverStyle.name { return name }
+        switch name {
+        case "Midnight", "Vice Nights": return "vice city"
+        case "Light Glass": return "Porcelain"
+        case "eternal sunshine!", "Ember", "Vintage Wood", "Retro Terminal", "Sunset 3D": return "eternal sunshine"
+        case "Monochrome": return "Graphite"
+        default: return "vice city"
+        }
+    }
 }
 
 extension Color {
@@ -111,7 +141,7 @@ struct Scope: View {
                 draw(context, size: size)
             }
             .background {
-                LinearGradient(colors: [Color(rgb: 0x141E2B), Color(rgb: 0x090E16)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [palette.scopeBackground, palette.scopeBackground.opacity(0.84)], startPoint: .top, endPoint: .bottom)
             }
             .clipShape(.rect(cornerRadius: 5))
             .overlay { RoundedRectangle(cornerRadius: 5).strokeBorder(palette.line) }
@@ -120,7 +150,7 @@ struct Scope: View {
                     let level = row == 0 ? meter.frame.left : meter.frame.right
                     let normalized = max(0, min(1, (20 * log10(max(0.0001, level)) + 52) / 52))
                     for cell in 0..<28 {
-                        let tint: Color = cell > 24 ? .red : cell > 20 ? .orange : palette.signal
+                        let tint: Color = cell > 24 ? .red : cell > 20 ? .orange : palette.scopeSignal
                         let cellWidth = size.width / CGFloat(28)
                         let rect = CGRect(x: CGFloat(cell) * cellWidth, y: CGFloat(row) * 6, width: max(1, cellWidth - 2), height: 4)
                         let lit = min(1, max(0, Double(normalized) * 28 - Double(cell)))
@@ -142,12 +172,12 @@ struct Scope: View {
             for column in 0...8 {
                 let x = bounds.minX + bounds.width * Double(column) / 8
                 let points = [CGPoint(x: x, y: bounds.minY), CGPoint(x: x, y: bounds.maxY)]
-                stroke(context, path(points), palette.signal.opacity(0.07), width: 0.7)
+                stroke(context, path(points), palette.scopeSignal.opacity(0.07), width: 0.7)
             }
             for row in 0...4 {
                 let y = bounds.minY + bounds.height * Double(row) / 4
                 let points = [CGPoint(x: bounds.minX, y: y), CGPoint(x: bounds.maxX, y: y)]
-                stroke(context, path(points), palette.signal.opacity(row == 2 ? 0.15 : 0.08), width: 0.7)
+                stroke(context, path(points), palette.scopeSignal.opacity(row == 2 ? 0.15 : 0.08), width: 0.7)
             }
         }
         switch mode {
@@ -165,7 +195,7 @@ struct Scope: View {
     private func drawSpectrum(_ context: GraphicsContext, in bounds: CGRect, bars: [Double]) {
         let step = bounds.width / Double(bars.count)
         let width = step * 0.72
-        let gradient = Gradient(colors: [palette.signal.opacity(0.96), palette.signal.opacity(0.18)])
+        let gradient = Gradient(colors: [palette.scopeSignal.opacity(0.96), palette.scopeSignal.opacity(0.18)])
         for (index, bar) in bars.enumerated() {
             let height = max(1.3, pow(bar, 1.25) * bounds.height)
             let rect = CGRect(x: bounds.minX + Double(index) * step + (step - width) / 2,
@@ -189,8 +219,8 @@ struct Scope: View {
             return CGPoint(x: bounds.minX + bounds.width * position, y: bounds.midY - amplitude * bounds.height * 0.48)
         }
         let trace = path(points)
-        stroke(context, trace, palette.signal.opacity(0.14), width: 5)
-        stroke(context, trace, palette.signal.opacity(0.92), width: 1.4)
+        stroke(context, trace, palette.scopeSignal.opacity(0.14), width: 5)
+        stroke(context, trace, palette.scopeSignal.opacity(0.92), width: 1.4)
     }
 
     private func drawAurora(_ context: GraphicsContext, in bounds: CGRect, bars: [Double]) {
@@ -212,7 +242,7 @@ struct Scope: View {
         fill.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY))
         fill.addLine(to: CGPoint(x: bounds.minX, y: bounds.maxY))
         fill.closeSubpath()
-        context.fill(fill, with: .linearGradient(Gradient(colors: [tint.opacity(0.62), palette.signal.opacity(0.42), palette.signal.opacity(0.03)]),
+        context.fill(fill, with: .linearGradient(Gradient(colors: [tint.opacity(0.62), palette.scopeSignal.opacity(0.42), palette.scopeSignal.opacity(0.03)]),
                                                 startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
                                                 endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)))
         stroke(context, ridge, tint.opacity(0.13), width: 6)
@@ -235,7 +265,7 @@ struct Scope: View {
             }
             let ridge = path(points, curved: true)
             let newest = index == traces.count - 1
-            stroke(context, ridge, newest ? palette.accent.opacity(0.88) : palette.signal.opacity(0.16 + 0.45 * depth),
+            stroke(context, ridge, newest ? palette.accent.opacity(0.88) : palette.scopeSignal.opacity(0.16 + 0.45 * depth),
                    width: newest ? 1.45 : 0.85)
         }
     }

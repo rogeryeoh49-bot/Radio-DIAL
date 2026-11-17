@@ -197,6 +197,33 @@ struct PanelBody: View {
         }
     }
 
+    private var themePalette: DialPalette { DialPalette(dial.prefs.theme) }
+
+    @ViewBuilder
+    var themeWindowBackground: some View {
+        if dial.prefs.theme == RadioReceiverStyle.name {
+            ReceiverMetal()
+        } else if dial.prefs.theme == "Cover Flow" {
+            LinearGradient(colors: [Color(rgb: 0x292A2C), Color(rgb: 0x161719)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            themePalette.panel
+        }
+    }
+
+    private func themeCard(_ selected: Bool) -> some View {
+        let light = themePalette.light
+        return RoundedRectangle(cornerRadius: 10)
+            .fill(light ? Color.white.opacity(selected ? 0.62 : 0.38) :
+                    Color.white.opacity(selected ? 0.09 : 0.045))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(selected ? themePalette.accent.opacity(0.85) :
+                                    (light ? Color.black.opacity(0.11) : Color.white.opacity(0.10)),
+                                  lineWidth: selected ? 1.5 : 1)
+            }
+    }
+
     private var themes: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
@@ -212,39 +239,60 @@ struct PanelBody: View {
                     }
                     Spacer()
                     if dial.prefs.theme == RadioReceiverStyle.name {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(themePalette.accent)
                     }
                 }
                 .padding(10)
-                .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                .background { themeCard(dial.prefs.theme == RadioReceiverStyle.name) }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(RadioReceiverStyle.name)
 
-            themeSwatches
-        }
-    }
-
-    private var themeSwatches: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 9) {
-            ForEach(DialPalette.themes, id: \.self) { name in
-                let swatch = DialPalette(name)
-                Button { dial.prefs.theme = name } label: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 4) {
-                            ForEach([swatch.base, swatch.inset, swatch.accent, swatch.signal], id: \.self) { color in
-                                Circle().fill(color).frame(width: 11, height: 11)
-                            }
-                            Spacer()
-                            if name == dial.prefs.theme { Image(systemName: "checkmark.circle.fill").foregroundStyle(swatch.signal) }
-                        }
-                        Text(name).font(.caption.bold()).foregroundStyle(swatch.text)
+            Button {
+                dial.prefs.theme = "Cover Flow"
+                dismiss()
+            } label: {
+                HStack(spacing: 14) {
+                    CoverFlowThemePreview().frame(width: 176, height: 82)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Cover Flow").font(.headline)
+                        Text("A tribute to iPod").font(.caption).foregroundStyle(.secondary)
                     }
-                    .padding(9)
-                    .background(swatch.panel, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(swatch.line) }
-                }.buttonStyle(.plain)
+                    Spacer()
+                    if dial.prefs.theme == "Cover Flow" {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(themePalette.accent)
+                    }
+                }
+                .padding(10)
+                .background { themeCard(dial.prefs.theme == "Cover Flow") }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cover Flow, A tribute to iPod")
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 9) {
+                ForEach(DialPalette.themes, id: \.self) { name in
+                    let palette = DialPalette(name)
+                    Button { dial.prefs.theme = name } label: {
+                        HStack(spacing: 10) {
+                            PaletteThemePreview(palette: palette).frame(width: 90, height: 56)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(name).font(.subheadline.weight(.semibold))
+                                Text(palette.light ? "Light" : "Dark").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            if name == dial.prefs.theme {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(themePalette.accent)
+                            }
+                        }
+                        .padding(8)
+                        .background { themeCard(name == dial.prefs.theme) }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(name)
+                }
             }
         }
     }
@@ -532,4 +580,74 @@ private struct LyricsView: View {
 private struct LyricLine {
     var time: Double
     var text: String
+}
+
+private struct CoverFlowThemePreview: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(white: 0.19), .black], startPoint: .top, endPoint: .bottom)
+            HStack(spacing: -4) {
+                cover(0x846B71).rotation3DEffect(.degrees(48), axis: (x: 0, y: 1, z: 0))
+                cover(0x8795A4).rotation3DEffect(.degrees(40), axis: (x: 0, y: 1, z: 0))
+                cover(0xD5A778).frame(width: 45, height: 45).zIndex(1)
+                cover(0x747F6B).rotation3DEffect(.degrees(-40), axis: (x: 0, y: 1, z: 0))
+                cover(0x756A85).rotation3DEffect(.degrees(-48), axis: (x: 0, y: 1, z: 0))
+            }
+            .offset(y: -4)
+            Capsule().fill(.white.opacity(0.30)).frame(width: 45, height: 2).offset(y: 30)
+        }
+        .clipShape(.rect(cornerRadius: 7))
+        .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.12)) }
+        .accessibilityHidden(true)
+    }
+
+    private func cover(_ color: UInt32) -> some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(LinearGradient(colors: [Color(rgb: color), Color(rgb: color).opacity(0.45)],
+                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(width: 29, height: 38)
+            .overlay { RoundedRectangle(cornerRadius: 2).strokeBorder(.white.opacity(0.18)) }
+    }
+}
+
+private struct PaletteThemePreview: View {
+    let palette: DialPalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                RoundedRectangle(cornerRadius: 1).fill(palette.text.opacity(0.75)).frame(width: 24, height: 3)
+                Spacer()
+                Circle().fill(palette.accent).frame(width: 3, height: 3)
+            }
+            HStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 3).fill(palette.inset)
+                    .overlay {
+                        HStack(alignment: .center, spacing: 2) {
+                            ForEach(0..<7) { i in
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(palette.accent.opacity(0.8))
+                                    .frame(width: 2, height: CGFloat([4, 8, 12, 6, 14, 9, 5][i]))
+                            }
+                        }
+                    }
+                VStack(spacing: 4) {
+                    ForEach(0..<3) { _ in
+                        RoundedRectangle(cornerRadius: 1).fill(palette.text.opacity(0.18)).frame(height: 3)
+                    }
+                }.frame(width: 20)
+            }
+            HStack(spacing: 4) {
+                Circle().fill(palette.signal).frame(width: 7, height: 7)
+                Capsule().fill(palette.text.opacity(0.2)).frame(width: 35, height: 3)
+                Spacer()
+                Circle().strokeBorder(palette.accent.opacity(0.6)).frame(width: 7, height: 7)
+            }
+        }
+        .padding(6)
+        .background(palette.panel)
+        .clipShape(.rect(cornerRadius: 6))
+        .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(palette.accent.opacity(0.25)) }
+        .accessibilityHidden(true)
+    }
 }

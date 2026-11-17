@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import ImageIO
 import MediaPlayer
 
 @MainActor
@@ -101,7 +100,7 @@ final class NowPlaying {
         guard let url else { return }
 
         artworkLoad = Task { [weak self] in
-            guard let image = try? await Self.artworkThumbnail(from: url),
+            guard let image = try? await Catalog.artworkThumbnail(from: url),
                   !Task.isCancelled, let self, self.dial?.art == url,
                   self.dial?.playback != .stopped else { return }
             let size = NSSize(width: image.width, height: image.height)
@@ -109,21 +108,6 @@ final class NowPlaying {
             self.artwork = MPMediaItemArtwork(boundsSize: size) { _ in cover }
             self.refresh()
         }
-    }
-
-    private nonisolated static func artworkThumbnail(from url: URL) async throws -> CGImage? {
-        let request = URLRequest(url: url, timeoutInterval: 8)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let image = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let options = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 512,
-            kCGImageSourceShouldCacheImmediately: true
-        ] as CFDictionary
-        return CGImageSourceCreateThumbnailAtIndex(image, 0, options)
     }
 
     func tearDown() {

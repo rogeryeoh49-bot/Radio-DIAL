@@ -1,10 +1,14 @@
 import AppKit
 import Combine
+import CoreText
 import SwiftUI
 
 @main
 enum RadioDialApp {
     @MainActor static func main() {
+        if let font = Bundle.main.url(forResource: "Punctum-Regular", withExtension: "ttf") {
+            CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
+        }
         let app = NSApplication.shared
         let delegate = DialDelegate()
         app.delegate = delegate
@@ -15,6 +19,7 @@ enum RadioDialApp {
 
 private struct DialWindow: View {
     @ObservedObject var dial: DialState
+    @StateObject private var coverFlowArtwork = CoverFlowArtwork()
     @State private var stationQuery = ""
     @State private var podcastQuery = ""
     @State private var countrySelection = CountrySelection.all
@@ -30,6 +35,7 @@ private struct DialWindow: View {
     @State private var seekValue = 0.0
     @State private var fullFrame: NSRect?
     @State private var window: NSWindow?
+    @State private var coverFlowSupportsHDR = false
     private enum CountrySelection: Hashable {
         case all
         case pinned(String)
@@ -55,12 +61,21 @@ private struct DialWindow: View {
         Group {
             if dial.prefs.theme == RadioReceiverStyle.name && !dial.mini {
                 RadioReceiver(dial: dial, country: receiverCountry, tools: receiverTools)
+            } else if dial.prefs.theme == "Cover Flow" && !dial.mini {
+                CoverFlow(dial: dial, artwork: coverFlowArtwork, library: stationLibraryButton, options: optionsMenu,
+                          keyboardEnabled: !showReceiverLibrary && dial.pane == nil,
+                          supportsHDR: coverFlowSupportsHDR)
             } else {
                 standardLayout
             }
         }
         .frame(minWidth: dial.mini ? 480 : 840, minHeight: dial.mini ? 250 : 620)
-        .background(WindowReader { window = $0 })
+        .background(WindowReader { window = $0; updateCoverFlowDisplay($0) })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { note in
+            if let changedWindow = note.object as? NSWindow, changedWindow === window {
+                updateCoverFlowDisplay(changedWindow)
+            }
+        }
         .background(LinearGradient(colors: [palette.base, palette.base.opacity(0.93)], startPoint: .bottom, endPoint: .top))
         .foregroundStyle(palette.text)
         .tint(palette.accent)
@@ -69,6 +84,13 @@ private struct DialWindow: View {
             PanelBody(dial: dial, pane: pane)
                 .padding(24)
                 .frame(width: pane == .lyrics ? 620 : 540)
+                .background {
+                    if pane == .theme {
+                        PanelBody(dial: dial, pane: pane).themeWindowBackground
+                    }
+                }
+                .foregroundStyle(pane == .theme ? palette.text : .primary)
+                .tint(palette.accent)
                 .preferredColorScheme(palette.light ? .light : .dark)
         }
         .onChange(of: dial.mini) { _, mini in
@@ -84,12 +106,20 @@ private struct DialWindow: View {
             }
         }
         .onChange(of: dial.prefs.theme) { _, theme in
-            if theme == RadioReceiverStyle.name { resetReceiverFilters() }
+            if theme == RadioReceiverStyle.name {
+                if dial.source?.fmFrequency == nil, dial.playback != .stopped { dial.stop(message: "Select an FM station") }
+                dial.section = .radio
+                resetReceiverFilters()
+            }
         }
         .onChange(of: countrySelection.code) { _, _ in search() }
         .onChange(of: genre) { _, _ in search() }
         .onChange(of: bitrate) { _, _ in search() }
         .onChange(of: sort) { _, _ in search() }
+    }
+
+    private func updateCoverFlowDisplay(_ window: NSWindow) {
+        coverFlowSupportsHDR = (window.screen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1) > 1
     }
 
     private var standardLayout: some View {
@@ -121,15 +151,19 @@ private struct DialWindow: View {
         .modifier(ReceiverKeyFace(active: true))
     }
 
+    private var stationLibraryButton: some View {
+        Button { showReceiverLibrary.toggle() } label: { Image(systemName: "list.bullet") }
+            .help("Station library").accessibilityLabel("Station library")
+            .popover(isPresented: $showReceiverLibrary, arrowEdge: .bottom) {
+                library.padding(14).frame(width: 820, height: 390)
+                    .foregroundStyle(palette.text)
+                    .background(palette.panel)
+            }
+    }
+
     private var receiverTools: some View {
         HStack(spacing: 12) {
-            Button { showReceiverLibrary.toggle() } label: { Image(systemName: "list.bullet") }
-                .help("Station library").accessibilityLabel("Station library")
-                .popover(isPresented: $showReceiverLibrary, arrowEdge: .bottom) {
-                    library.padding(14).frame(width: 820, height: 390)
-                        .foregroundStyle(palette.text)
-                        .background(palette.panel)
-                }
+            stationLibraryButton
             Button {
                 if let source = dial.source { dial.favorite(source) }
             } label: { Image(systemName: dial.isFavorite ? "star.fill" : "star") }
@@ -212,8 +246,14 @@ private struct DialWindow: View {
                     Label(dial.sleepRemaining, systemImage: "moon").font(.system(.caption, design: .monospaced)).foregroundStyle(palette.accent)
                 }
             }
-            Text(dial.track.isEmpty ? dial.source?.subtitle.nonempty ?? "LIVE RADIO  /  PODCASTS" : dial.track)
-                .font(.system(.caption, design: .monospaced)).foregroundStyle(palette.secondary).lineLimit(1)
+            HStack(spacing: 10) {
+                Text(dial.track.isEmpty ? dial.source?.subtitle.nonempty ?? "LIVE RADIO  /  PODCASTS" : dial.track)
+                    .font(.system(.caption, design: .monospaced)).foregroundStyle(palette.secondary).lineLimit(1)
+                Spacer(minLength: 0)
+                if !dial.track.isEmpty, dial.playback != .stopped, let url = dial.appleMusicURL {
+                    AppleMusicButton(url: url, color: palette.accent)
+                }
+            }
             HStack(alignment: .bottom, spacing: 13) {
                 Artwork(url: dial.art, icon: dial.source?.episode == true ? "waveform" : "radio", palette: palette)
                     .id(dial.art)
@@ -249,7 +289,7 @@ private struct DialWindow: View {
             }
         }
         .padding(dial.mini ? 10 : 15)
-        .background(palette.light ? palette.inset : Color(rgb: 0x11171B), in: RoundedRectangle(cornerRadius: 12))
+        .background(palette.displayBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.07)) }
     }
 
@@ -352,8 +392,8 @@ private struct DialWindow: View {
         Button(action: action) {
             label()
                 .frame(width: dial.mini ? 32 : 40, height: dial.mini ? 32 : 40)
-                .foregroundStyle(active ? Color.white : tint)
-                .background(LinearGradient(colors: active ? [tint.opacity(0.78), tint.opacity(0.17)] : [.white.opacity(0.08), .black.opacity(0.08)],
+                .foregroundStyle(active ? (palette.light ? Color.white : palette.displayBackground) : tint)
+                .background(LinearGradient(colors: active ? [tint.opacity(palette.light ? 0.95 : 0.9), tint.opacity(palette.light ? 0.75 : 0.65)] : [.white.opacity(0.08), .black.opacity(0.08)],
                                            startPoint: .top, endPoint: .bottom), in: Circle())
                 .overlay { Circle().strokeBorder(active ? tint : .white.opacity(0.10)) }
         }
@@ -363,7 +403,7 @@ private struct DialWindow: View {
     private var library: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                ForEach(DialState.Section.allCases, id: \.self) { item in
+                ForEach(dial.prefs.theme == RadioReceiverStyle.name ? [.radio, .favorites, .history] : DialState.Section.allCases, id: \.self) { item in
                     Button { dial.section = item } label: {
                         Label(item.rawValue.uppercased(), systemImage: sectionIcon(item))
                             .font(.system(size: 11, weight: .bold, design: .serif))
@@ -423,7 +463,7 @@ private struct DialWindow: View {
                 Button("Search") { search() }.buttonStyle(.borderedProminent)
             }
             if !dial.radioError.isEmpty { Text(dial.radioError).font(.caption).foregroundStyle(.orange) }
-            table(dial.stations, empty: dial.busy ? "Loading stations…" : "No stations found.", more: dial.more) {
+            table(dial.prefs.theme == RadioReceiverStyle.name ? dial.stations.filter { $0.fmFrequency != nil } : dial.stations, empty: dial.busy ? "Loading stations…" : "No stations found.", more: dial.more) {
                 dial.open($0)
             }
         }
@@ -514,7 +554,7 @@ private struct DialWindow: View {
                 Spacer()
                 Button("Import / Export") { dial.pane = .playlist }
             }
-            table(dial.prefs.favorites.filter { activeFavoriteType == 0 ? $0.isRadio : !$0.isRadio }, empty: "No favorites here yet.") { dial.open($0) }
+            table(dial.prefs.favorites.filter { dial.prefs.theme == RadioReceiverStyle.name ? $0.fmFrequency != nil : (activeFavoriteType == 0 ? $0.isRadio : !$0.isRadio) }, empty: "No favorites here yet.") { dial.open($0) }
         }
     }
 
@@ -531,7 +571,7 @@ private struct DialWindow: View {
             ScrollView {
                 if dial.prefs.history.isEmpty { emptyState("No listening history yet.") }
                 LazyVStack(spacing: 1) {
-                    ForEach(dial.prefs.history) { visit in
+                    ForEach(dial.prefs.history.filter { dial.prefs.theme != RadioReceiverStyle.name || $0.source.fmFrequency != nil }) { visit in
                         row(visit.source, hint: visit.date.formatted(date: .abbreviated, time: .shortened)) { dial.open(visit.source) }
                             .contextMenu {
                                 Button("Remove from History") { dial.prefs.history.removeAll { $0.id == visit.id } }
@@ -636,6 +676,29 @@ private struct DialWindow: View {
     }
 }
 
+struct AppleMusicButton: View {
+    let url: URL
+    let color: Color
+    @State private var hovered = false
+
+    var body: some View {
+        Button { NSWorkspace.shared.open(url) } label: {
+            (Text("open in  ").fontWeight(.semibold) + Text("music").fontWeight(.black))
+                .font(.system(size: 11))
+                .foregroundStyle(color.opacity(hovered ? 1 : 0.85))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(color.opacity(hovered ? 0.18 : 0.09), in: Capsule())
+                .overlay(Capsule().strokeBorder(color.opacity(hovered ? 0.38 : 0.2)))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { hovered = $0 }
+        .accessibilityLabel("Open in Apple Music")
+        .help("Open this song in Apple Music")
+    }
+}
+
 struct Artwork: View {
     var url: URL?
     var icon: String
@@ -720,6 +783,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
             guard let dial = self?.dial, event.window?.attachedSheet == nil else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
             if modifiers.isEmpty && event.keyCode == 49 && !(event.window?.firstResponder is NSTextView) {
+                if dial.prefs.theme == "Cover Flow", !dial.mini { return event }
                 dial.togglePlayback()
                 return nil
             }

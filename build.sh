@@ -16,6 +16,7 @@ else
 fi
 cp Info.plist "$app/Contents/Info.plist"
 cp recognize.py "$app/Contents/Resources/recognize.py"
+cp Resources/Punctum-Regular.ttf Resources/Punctum-OFL.txt "$app/Contents/Resources/"
 if [[ -f RadioDial.icns ]]; then cp RadioDial.icns "$app/Contents/Resources/RadioDial.icns"; fi
 codesign --force --sign - "$app"
 printf '%s\n' "$app"

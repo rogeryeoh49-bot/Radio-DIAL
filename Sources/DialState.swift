@@ -15,7 +15,7 @@ struct Preferences: Codable {
     var preset = "Flat"
     var customEQ: [String: [Double]] = [:]
     var visualizer = "Spectrum"
-    var theme = "Vintage Wood"
+    var theme = "vice city"
     var capture = CaptureOptions()
     var last: Source?
     var resumeOnLaunch = false
@@ -42,6 +42,7 @@ final class DialState: ObservableObject {
     @Published var source: Source?
     @Published var track = ""
     @Published var art: URL?
+    @Published var appleMusicURL: URL?
     @Published var status = "Choose a station to start listening."
     @Published var playback = Playback.stopped
     @Published var recording = false
@@ -92,6 +93,7 @@ final class DialState: ObservableObject {
     private var scheduledStop: Date?
     private var audioStart: TimeInterval?
     private var pauseAfterSeek = false
+    private var pausedWhileConnecting = false
     private var healthySince: TimeInterval?
     private var resumedAt: TimeInterval?
     private var offset = 0.0
@@ -108,6 +110,7 @@ final class DialState: ObservableObject {
         settingsURL = storage.appendingPathComponent("settings.json")
         var saved = (try? Data(contentsOf: settingsURL)).flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
         saved.visualizer = Scope.currentMode(saved.visualizer)
+        saved.theme = DialPalette.currentTheme(saved.theme)
         prefs = saved
         source = prefs.last
         art = prefs.last?.artwork
@@ -118,7 +121,10 @@ final class DialState: ObservableObject {
         audio.onStarted = { [weak self] outputTime in self?.started(outputTime: outputTime) }
         audio.onFailure = { [weak self] error in self?.failed(error) }
         audio.onEnded = { [weak self] in self?.stop(message: "Playback finished.") }
-        audio.onMetadata = { [weak self] title, artwork in self?.setTrack(title, artwork: artwork) }
+        audio.onMetadata = { [weak self] title, artwork in
+            let track = PlaylistMetadata.icyTrack(title)
+            self?.setTrack(track?.name ?? title, artwork: track?.artwork ?? artwork)
+        }
         audio.onRecordingInterrupted = { [weak self] message in
             guard let self else { return }
             self.recording = false
@@ -258,11 +264,18 @@ final class DialState: ObservableObject {
     }
 
     func open(_ item: Source) {
-        if item.feed != nil { openPodcast(item) } else { play(item) }
+        if item.feed != nil { openPodcast(item) } else { tune(item) }
     }
 
-    func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true, remainPaused: Bool = false) {
+    func tune(_ item: Source) {
+        let switchingStations = item.isRadio && source?.isRadio == true &&
+            source?.id != item.id && playback != .stopped
+        play(item, tuningEffect: switchingStations)
+    }
+
+    func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true, remainPaused: Bool = false, tuningEffect: Bool = false) {
         reconnectTask?.cancel()
+        pausedWhileConnecting = false
         if !retry {
             retryCount = 0
             if source?.id != item.id { stopRecording() }
@@ -275,6 +288,7 @@ final class DialState: ObservableObject {
         finding = false
         trackTask?.cancel()
         track = ""
+        appleMusicURL = nil
         lyrics = nil
         lyricStatus = ""
         art = item.artwork
@@ -289,7 +303,7 @@ final class DialState: ObservableObject {
         resumedAt = nil
         nextRecognition = Date().addingTimeInterval(25)
         do {
-            try audio.play(item, seek: position, profile: prefs.profile, proxy: prefs.proxy)
+            try audio.play(item, seek: position, profile: prefs.profile, proxy: prefs.proxy, tuningEffect: tuningEffect)
             playback = .connecting
             status = retry ? "Reconnecting to \(item.title)…" : "Connecting to \(item.title)…"
             if !retry && log {
@@ -309,18 +323,32 @@ final class DialState: ObservableObject {
             meter.reset()
             status = "Paused"
         case .paused:
+            if pausedWhileConnecting, let source {
+                pausedWhileConnecting = false
+                play(source, log: false)
+                return
+            }
             resumedAt = ProcessInfo.processInfo.systemUptime
             healthySince = nil
             audio.pause(false)
             playback = .playing
             status = "Playing \(source?.title ?? "")"
-        case .connecting: stop()
+        case .connecting:
+            reconnectTask?.cancel()
+            audio.halt()
+            audioStart = nil
+            healthySince = nil
+            pausedWhileConnecting = true
+            playback = .paused
+            meter.reset()
+            status = "Paused"
         case .stopped:
             if let source { play(source) } else if let first = stations.first { play(first) }
         }
     }
 
     func stop(message: String = "Stopped") {
+        pausedWhileConnecting = false
         reconnectTask?.cancel()
         recognitionTask?.cancel()
         finding = false
@@ -517,10 +545,11 @@ final class DialState: ObservableObject {
         let cleaned = title.replacingOccurrences(of: #"\s*-?\s*text=.*$"#, with: "", options: [.regularExpression, .caseInsensitive])
         guard cleaned != source?.title else { return }
         if cleaned == track {
-            if let artwork { trackTask?.cancel(); art = artwork }
+            if let artwork { art = artwork }
             return
         }
         track = cleaned
+        appleMusicURL = nil
         art = artwork ?? source?.artwork
         trackStart = elapsed
         lyrics = nil
@@ -535,11 +564,11 @@ final class DialState: ObservableObject {
         audio.splitRecording(cleaned)
         links.trackChanged(cleaned, prefs: prefs)
         if let source { links.discord(client: prefs.discordID, title: source.title, detail: cleaned) }
-        if artwork == nil {
-            trackTask = Task {
-                let artwork = try? await Catalog.artwork(cleaned)
-                if !Task.isCancelled { art = artwork ?? source?.artwork }
-            }
+        trackTask = Task {
+            let match = try? await Catalog.songMatch(cleaned)
+            guard !Task.isCancelled, track == cleaned else { return }
+            appleMusicURL = match?.appleMusicURL
+            if art == source?.artwork, let artwork = match?.artwork { art = artwork }
         }
         if pane == .lyrics { findLyrics(cleaned) }
     }
@@ -684,7 +713,7 @@ final class DialState: ObservableObject {
 
     func openStream(_ address: String, name: String) {
         guard let url = Catalog.webURL(address) else { status = DialError.invalidURL.localizedDescription; return }
-        play(Source(id: url.absoluteString, title: name.isEmpty ? url.host ?? "Stream" : name, url: url))
+        tune(Source(id: url.absoluteString, title: name.isEmpty ? url.host ?? "Stream" : name, url: url))
     }
 
     func test(_ item: Source) {
