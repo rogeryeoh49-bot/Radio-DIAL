@@ -91,6 +91,7 @@ final class DialState: ObservableObject {
     private var nextRecognition = Date.distantPast
     private var scheduledStop: Date?
     private var audioStart: TimeInterval?
+    private var pauseAfterSeek = false
     private var healthySince: TimeInterval?
     private var resumedAt: TimeInterval?
     private var offset = 0.0
@@ -99,6 +100,7 @@ final class DialState: ObservableObject {
     private var radioOffset = 0
     private var transferTask: [String: Task<Void, Never>] = [:]
     var isFavorite: Bool { source.map { current in prefs.favorites.contains(where: { $0.id == current.id }) } ?? false }
+    var currentPlaybackTime: Double { offset + audio.elapsed() }
     var currentLyricTime: Double { max(0, elapsed - trackStart) }
     var downloadFolder: URL { Self.storage.appendingPathComponent("Podcasts", isDirectory: true) }
 
@@ -259,7 +261,7 @@ final class DialState: ObservableObject {
         if item.feed != nil { openPodcast(item) } else { play(item) }
     }
 
-    func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true) {
+    func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true, remainPaused: Bool = false) {
         reconnectTask?.cancel()
         if !retry {
             retryCount = 0
@@ -276,6 +278,7 @@ final class DialState: ObservableObject {
         lyrics = nil
         lyricStatus = ""
         art = item.artwork
+        pauseAfterSeek = remainPaused
         offset = position
         elapsed = position
         length = 0
@@ -334,6 +337,13 @@ final class DialState: ObservableObject {
             streamLatency = outputTime - audioStart
             healthySince = outputTime
         }
+        if pauseAfterSeek {
+            pauseAfterSeek = false
+            audio.pause(true)
+            playback = .paused
+            status = "Paused"
+            return
+        }
         playback = .playing
         status = "Playing \(source?.title ?? "")"
         if let source { links.discord(client: prefs.discordID, title: source.title, detail: track) }
@@ -357,7 +367,9 @@ final class DialState: ObservableObject {
     }
 
     func seek(_ seconds: Double) {
-        if let source, !source.isRadio, length > 0 { play(source, position: max(0, min(length - 1, seconds)), log: false) }
+        if let source, !source.isRadio, length > 0, seconds.isFinite {
+            play(source, position: max(0, min(length - 1, seconds)), log: false, remainPaused: playback == .paused)
+        }
     }
 
     func setVolume(_ value: Double) { prefs.volume = max(0, min(100, value)); applyVolume() }
@@ -597,7 +609,7 @@ final class DialState: ObservableObject {
 
     private func update() {
         if playback == .playing || playback == .paused {
-            elapsed = offset + audio.elapsed()
+            elapsed = currentPlaybackTime
             if audio.duration > 0 { length = audio.duration }
         }
         let now = Date()

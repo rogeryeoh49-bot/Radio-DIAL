@@ -688,6 +688,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     weak var dial: DialState?
     private var keyMonitor: Any?
     private var player: DialState?
+    private var nowPlaying: NowPlaying?
     private var window: NSWindow?
     private var statusItem: NSStatusItem?
     private var preferenceObserver: AnyCancellable?
@@ -695,6 +696,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = DialState()
         player = model
+        nowPlaying = NowPlaying(dial: model)
         dial = model
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1000, height: 760)
         let size = NSSize(width: min(980, screen.width - 28), height: min(720, screen.height - 36))
@@ -824,6 +826,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let dial else { return .terminateNow }
         dial.stop()
+        nowPlaying?.tearDown()
         dial.audio.afterRecordingsSaved { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }
