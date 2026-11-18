@@ -18,11 +18,13 @@ struct Preferences: Codable {
     var theme = "vice city"
     var capture = CaptureOptions()
     var last: Source?
-    var resumeOnLaunch = false
+    var resumeOnLaunch = true
     var keepInMenuBar = true
     var profile = "Balanced"
     var proxy = ""
     var podcastCountry = "US"
+    var radioMarket: String?
+    var radioBand: String?
     var automaticRecognition = false
     var lastFMUser = ""
     var lastFMKey = ""
@@ -89,6 +91,8 @@ final class DialState: ObservableObject {
     private var retryCount = 0
     private var tick: Timer?
     private var meterTick: Timer?
+    private enum TrackOrigin { case none, station, unverifiedStation, recognition }
+    private var trackOrigin: TrackOrigin = .none
     private var nextRecognition = Date.distantPast
     private var scheduledStop: Date?
     private var audioStart: TimeInterval?
@@ -288,6 +292,7 @@ final class DialState: ObservableObject {
         finding = false
         trackTask?.cancel()
         track = ""
+        trackOrigin = .none
         appleMusicURL = nil
         lyrics = nil
         lyricStatus = ""
@@ -541,9 +546,28 @@ final class DialState: ObservableObject {
         }
     }
 
-    func setTrack(_ title: String, artwork: URL? = nil) {
+    private func setTrack(_ title: String, artwork: URL? = nil, origin: TrackOrigin = .station) {
         let cleaned = title.replacingOccurrences(of: #"\s*-?\s*text=.*$"#, with: "", options: [.regularExpression, .caseInsensitive])
-        guard cleaned != source?.title else { return }
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedOrigin = origin
+        if origin == .station {
+            switch TrackMetadataQuality.assess(cleaned, station: source?.title) {
+            case .song:
+                resolvedOrigin = .station
+            case .ambiguous:
+                // Keep a recognized song rather than replacing it with an unverified station label.
+                if trackOrigin == .recognition { return }
+                resolvedOrigin = .unverifiedStation
+            case .promotional:
+                // Announcements and slogans are not songs. Keep a recognition result if we have one.
+                if trackOrigin == .recognition { return }
+                if trackOrigin == .station { nextRecognition = min(nextRecognition, Date().addingTimeInterval(3)) }
+                if !track.isEmpty { setTrack("", origin: .recognition) }
+                trackOrigin = .none
+                return
+            }
+        }
+        trackOrigin = cleaned.isEmpty ? .none : resolvedOrigin
         if cleaned == track {
             if let artwork { art = artwork }
             return
@@ -595,18 +619,28 @@ final class DialState: ObservableObject {
         do { file = try audio.recognitionSample() }
         catch { lyricStatus = "Play at least a few seconds of audio first."; return }
         finding = true
-        lyricStatus = "Identifying the current song…"
+        lyricStatus = "Shazaming…"
+        status = "Shazaming…"
         recognitionTask = Task {
-            defer { try? FileManager.default.removeItem(at: file); if !Task.isCancelled { finding = false } }
+            defer {
+                try? FileManager.default.removeItem(at: file)
+                if !Task.isCancelled {
+                    finding = false
+                    if lyricStatus == "Shazaming…" { lyricStatus = "" }
+                    if status == "Shazaming…", playback == .playing, let source { status = "Playing \(source.title)" }
+                }
+            }
             do {
                 let match = try await Recognition.match(file)
-                guard !Task.isCancelled, !automatic || track.isEmpty else { return }
+                guard !Task.isCancelled,
+                      !automatic || (prefs.automaticRecognition && playback == .playing && trackOrigin != .station) else { return }
                 let name = [match.artist, match.title].filter { !$0.isEmpty }.joined(separator: " – ")
                 guard !name.isEmpty else { return }
-                if track != name { setTrack(name) } else if pane == .lyrics { findLyrics(name) }
-                if pane != .lyrics { status = "Identified \(name)" }
+                if track != name { setTrack(name, origin: .recognition) }
+                else if !automatic && pane == .lyrics { findLyrics(name) }
+                if !automatic && pane != .lyrics { status = "Identified \(name)" }
             } catch {
-                if !Task.isCancelled && (!automatic || track.isEmpty) {
+                if !Task.isCancelled && !automatic {
                     lyricStatus = error.localizedDescription
                     status = error.localizedDescription
                 }
@@ -669,7 +703,7 @@ final class DialState: ObservableObject {
         }
         if prefs.automaticRecognition && playback == .playing && source?.isRadio == true && now >= nextRecognition {
             nextRecognition = now.addingTimeInterval(60)
-            if track.isEmpty { identify(automatic: true) }
+            if trackOrigin != .station { identify(automatic: true) }
         }
         if playback == .playing { links.tick(prefs: prefs) }
     }

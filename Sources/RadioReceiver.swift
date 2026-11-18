@@ -14,27 +14,33 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     let tools: Tools
     @State private var previewFrequency: Double?
     @State private var pendingTune: Task<Void, Never>?
+    @State private var streamTask: Task<Void, Never>?
+    @State private var activeStation: BroadcastStation?
+    @State private var activeMarketID: String?
+    @State private var activeSourceID: String?
+    @State private var streamCandidates: [Source] = []
+    @State private var attemptedStreamURLs: Set<URL> = []
+    @State private var streamLookupFinished = false
+    @State private var streamLookupFailed = false
     @State private var tuningKnobStart: Double?
     @State private var volumeStart: Double?
-
-    private var fmStations: [Source] {
-        var seen = Set<String>()
-        return (dial.stations + dial.prefs.favorites + (dial.source.map { [$0] } ?? []))
-            .filter { $0.fmFrequency != nil && seen.insert($0.id).inserted }
-            .sorted { ($0.fmFrequency ?? 0) < ($1.fmFrequency ?? 0) }
-    }
-    private var displayedFrequency: Double? { previewFrequency ?? dial.source?.fmFrequency }
-    private var position: Double { displayedFrequency.map { min(1, max(0, ($0 - 88) / 20)) } ?? 0 }
-    private var previewStation: Source? {
+    @StateObject private var directory = MarketDirectory()
+    @State private var tuningStatus = "Select a frequency"
+    private var market: RadioMarket { RadioMarket.all.first { $0.id == dial.prefs.radioMarket } ?? RadioMarket.all[0] }
+    private var band: BroadcastBand { BroadcastBand(rawValue: dial.prefs.radioBand ?? "FM") ?? .fm }
+    private var lower: Double { band == .fm ? 88 : 530 }
+    private var upper: Double { band == .fm ? 108 : 1700 }
+    private var step: Double { band == .fm ? 0.1 : 10 }
+    private var displayedFrequency: Double? { previewFrequency }
+    private var position: Double { displayedFrequency.map { min(1, max(0, ($0 - lower) / (upper - lower))) } ?? 0 }
+    private var previewStation: BroadcastStation? {
         guard let frequency = previewFrequency else { return nil }
-        return fmStations.first { $0.fmFrequency.map { abs($0 - frequency) < 0.001 } ?? false }
+        let key = Int((band == .fm ? frequency * 10 : frequency).rounded())
+        return directory.stations.first { $0.band == band && $0.frequency == key }
     }
-    private var displayedStation: Source? {
-        if previewFrequency != nil { return previewStation }
-        return dial.source?.fmFrequency == nil ? nil : dial.source
-    }
+    private var displayedStation: BroadcastStation? { previewStation }
     private static var presetCount: Int { 4 }
-    private var presets: [Source] { Array(dial.prefs.favorites.lazy.filter { $0.fmFrequency != nil }.prefix(Self.presetCount)) }
+    private var presets: [Source] { Array(dial.prefs.favorites.lazy.filter(\.isRadio).prefix(Self.presetCount)) }
 
     var body: some View {
         GeometryReader { geometry in
@@ -59,12 +65,15 @@ struct RadioReceiver<Country: View, Tools: View>: View {
         }
         .foregroundStyle(RadioReceiverStyle.ink)
         .background(Color(rgb: 0x262C2A))
-        .onChange(of: dial.source?.id) { _, _ in cancelTune() }
-        .onChange(of: dial.busy) { _, busy in if busy { cancelTune() } }
         .onAppear {
-            if dial.source?.fmFrequency == nil, dial.playback != .stopped { dial.stop(message: "Select an FM station") }
+            dial.stop(message: "Choose a city and frequency")
+            previewFrequency = band == .fm ? 100.3 : 1000
+            directory.load(market)
         }
-        .onDisappear { cancelTune() }
+        .onChange(of: dial.prefs.radioMarket) { _, _ in changeMarket() }
+        .onChange(of: directory.loading) { _, loading in if !loading { commitTune() } }
+        .onChange(of: dial.playback) { _, playback in playbackChanged(playback) }
+        .onDisappear { cancelTune(); resetStreamLookup(); if dial.playback == .stopped { dial.audio.halt() } }
     }
 
     private var header: some View {
@@ -85,27 +94,27 @@ struct RadioReceiver<Country: View, Tools: View>: View {
         VStack(alignment: .leading, spacing: 15) {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 7) {
-                    label("FM FREQUENCY", illuminated: true)
-                    Text(displayedFrequency.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—")
+                    label("\(band.rawValue) FREQUENCY", illuminated: true)
+                    Text(displayedFrequency.map { band == .fm ? $0.formatted(.number.precision(.fractionLength(1))) : String(Int($0)) } ?? "—")
                         .font(.system(size: 59, weight: .medium, design: .monospaced))
                         .monospacedDigit()
                         .foregroundStyle(RadioReceiverStyle.amber)
                         .lineLimit(1).minimumScaleFactor(0.65)
                         .accessibilityLabel("FM frequency")
-                        .accessibilityValue(displayedFrequency.map { "\($0.formatted(.number.precision(.fractionLength(1)))) megahertz" } ?? "Unavailable")
+                        .accessibilityValue(displayedFrequency.map { "\(band == .fm ? $0.formatted(.number.precision(.fractionLength(1))) : String(Int($0))) \(band == .fm ? "megahertz" : "kilohertz")" } ?? "Unavailable")
                 }
                 .frame(width: 174, alignment: .leading)
                 Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: 78)
                 VStack(alignment: .leading, spacing: 7) {
-                    label(previewFrequency != nil ? "TUNING" : "NOW TUNED", illuminated: true)
-                    Text(displayedStation?.title ?? "—")
+                    label("NOW TUNED", illuminated: true)
+                    Text(displayedStation?.callsign ?? "—")
                         .font(.system(size: 23, weight: .semibold)).lineLimit(2)
                         .foregroundStyle(RadioReceiverStyle.dialText)
                     Text(displaySubtitle)
                         .font(.system(size: 13)).lineLimit(2)
                         .foregroundStyle(RadioReceiverStyle.dialText.opacity(0.74))
                         .help(displaySubtitle)
-                    if previewFrequency == nil, displayedStation != nil, !dial.track.isEmpty, dial.playback != .stopped,
+                    if displayedStation != nil, !dial.track.isEmpty, dial.playback != .stopped,
                        let url = dial.appleMusicURL {
                         AppleMusicButton(url: url, color: RadioReceiverStyle.amber)
                     }
@@ -123,7 +132,10 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                                startPoint: .top, endPoint: .bottom)
             )
         }
-        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.black.opacity(0.70), lineWidth: 5) }
+        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.black.opacity(0.76), lineWidth: 5) }
+        .overlay(alignment: .top) {
+            RoundedRectangle(cornerRadius: 11).strokeBorder(.black.opacity(0.18), lineWidth: 2).padding(5).allowsHitTesting(false)
+        }
         .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.32), lineWidth: 1) }
         .padding(3)
         .background(Color(rgb: 0x545D57), in: RoundedRectangle(cornerRadius: 17))
@@ -131,11 +143,10 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     }
 
     private var displaySubtitle: String {
-        if previewFrequency != nil { return previewStation == nil ? "—" : "Tuning…" }
-        guard displayedStation != nil else { return "—" }
-        if !dial.track.isEmpty { return dial.track }
-        if dial.busy { return "Loading stations…" }
-        return dial.source?.subtitle.nonempty ?? dial.status
+        if directory.loading && directory.stations.isEmpty { return "Loading FCC stations…" }
+        if let error = directory.error, directory.stations.isEmpty { return error }
+        if !dial.track.isEmpty && dial.playback != .stopped { return dial.track }
+        return tuningStatus
     }
 
     private var tuningScale: some View {
@@ -144,23 +155,26 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                 let bottom = size.height - 3
                 for tick in 0...100 {
                     let major = tick.isMultiple(of: 10)
-                    let length: Double = major ? 21 : tick.isMultiple(of: 5) ? 13 : 8
+                    let length: Double = major ? 22 : tick.isMultiple(of: 5) ? 13 : 7
                     let x = size.width * Double(tick) / 100
                     var line = Path()
                     line.move(to: CGPoint(x: x, y: bottom))
                     line.addLine(to: CGPoint(x: x, y: bottom - length))
-                    context.stroke(line, with: .color(RadioReceiverStyle.dialText.opacity(major ? 0.63 : 0.33)), lineWidth: 0.8)
+                    context.stroke(line, with: .color(RadioReceiverStyle.dialText.opacity(major ? 0.78 : tick.isMultiple(of: 5) ? 0.53 : 0.34)), lineWidth: major ? 0.9 : 0.6)
                 }
                 var base = Path()
                 base.move(to: CGPoint(x: 0, y: bottom))
                 base.addLine(to: CGPoint(x: size.width, y: bottom))
                 context.stroke(base, with: .color(.white.opacity(0.25)), lineWidth: 0.8)
-                if let frequency = displayedFrequency, (88...108).contains(frequency) {
-                    let x = min(size.width - 4, max(4, size.width * (frequency - 88) / 20))
+                if let frequency = displayedFrequency {
+                    let x = min(size.width - 4, max(4, size.width * (frequency - lower) / (upper - lower)))
                     var needle = Path()
                     needle.move(to: CGPoint(x: x, y: bottom + 2))
                     needle.addLine(to: CGPoint(x: x, y: 5))
-                    context.stroke(needle, with: .color(RadioReceiverStyle.amber), lineWidth: 1.4)
+                    context.drawLayer { glow in
+                        glow.addFilter(.shadow(color: RadioReceiverStyle.amber.opacity(0.24), radius: 2))
+                        glow.stroke(needle, with: .color(RadioReceiverStyle.amber.opacity(0.85)), lineWidth: 1.1)
+                    }
                     var tip = Path()
                     tip.move(to: CGPoint(x: x - 4, y: 1))
                     tip.addLine(to: CGPoint(x: x + 4, y: 1))
@@ -170,14 +184,16 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                 }
             }.frame(height: 38)
 
-            HStack {
+            GeometryReader { geometry in
                 ForEach(0...10, id: \.self) { i in
-                    if i != 0 { Spacer(minLength: 0) }
-                    Text(String(88 + 2 * i))
+                    Text(band == .fm ? String(88 + 2 * i) : String(530 + 117 * i))
+                        .font(.custom("BarlowCondensed-Regular", size: 14))
+                        .foregroundStyle(RadioReceiverStyle.dialText.opacity(0.82))
+                        .fixedSize()
+                        .position(x: geometry.size.width * CGFloat(i) / 10, y: 9)
                 }
             }
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(RadioReceiverStyle.dialText.opacity(0.76))
+            .frame(height: 18)
         }
         .padding(.horizontal, 5)
         .overlay {
@@ -185,7 +201,7 @@ struct RadioReceiver<Country: View, Tools: View>: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Station tuning scale")
-        .accessibilityValue(displayedStation?.title ?? "No station")
+        .accessibilityValue(displayedStation?.callsign ?? "No station")
         .accessibilityHint("Drag across the scale or scroll to tune")
         .accessibilityAdjustableAction { direction in
             switch direction {
@@ -202,15 +218,26 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                 VStack(spacing: 11) {
                     label("PLAYBACK")
                     Button {
-                        if previewFrequency != nil { commitTune() }
-                        else if dial.source?.fmFrequency != nil { dial.togglePlayback() }
+                        if dial.playback == .playing || (dial.playback == .paused && activeSourceID == dial.source?.id) { dial.togglePlayback() }
+                        else { commitTune() }
                     } label: {
                         ReceiverKeyLabel(symbol: dial.playback == .playing ? "pause.fill" : "play.fill", active: dial.playback == .playing)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(dial.playback == .playing ? "Pause" : "Play")
                 }
-                country
+                cityMenu
+                Button(band.rawValue) {
+                    resetStreamLookup()
+                    dial.stop(message: "Changing band")
+                    dial.prefs.radioBand = band == .fm ? "AM" : "FM"
+                    previewFrequency = band == .fm ? 100.3 : 1000
+                    commitTune()
+                }
+                .buttonStyle(.plain)
+                .frame(width: 42, height: 42)
+                .modifier(ReceiverKeyFace(active: true))
+                .help("Switch AM / FM")
             }
             Divider().frame(height: 60).padding(.top, 13)
             VStack(spacing: 11) {
@@ -219,15 +246,19 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                     ForEach(0..<Self.presetCount, id: \.self) { slot in
                         let number = "0\(slot + 1)"
                         let source = presets.indices.contains(slot) ? presets[slot] : nil
+                        let station = source.flatMap { favorite in
+                            directory.stations.first { $0.band == .fm && MarketDirectory.matches(favorite, station: $0) }
+                        }
                         Button {
-                            guard let source else { return }
-                            cancelTune()
-                            dial.tune(source)
+                            guard let station else { return }
+                            dial.prefs.radioBand = "FM"
+                            previewFrequency = Double(station.frequency) / 10
+                            commitTune()
                         } label: {
                             ReceiverKeyLabel(text: number, active: source?.id == dial.source?.id && source != nil)
                         }
                         .buttonStyle(.plain)
-                        .disabled(source == nil)
+                        .disabled(station == nil)
                         .opacity(source == nil ? 0.52 : 1)
                         .help(source?.title ?? "Add a station to Favorites to fill this preset")
                         .accessibilityLabel("Preset \(number), \(source?.title ?? "Empty")")
@@ -316,34 +347,59 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     }
 
     private func label(_ value: String, illuminated: Bool = false) -> some View {
-        Text(value).font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.7)
+        Text(value).font(.custom("Barlow-Regular", size: 9)).tracking(1.6)
             .foregroundStyle(illuminated ? RadioReceiverStyle.dialText.opacity(0.68) : RadioReceiverStyle.ink)
     }
 
-    private func selectFrequency(_ fraction: Double, _ commit: Bool) {
-        guard !dial.busy else { return }
+    private var cityMenu: some View {
+        VStack(spacing: 11) {
+        label("CITY")
+        Menu {
+            ForEach(RadioMarket.all) { city in
+                Button { dial.prefs.radioMarket = city.id } label: {
+                    if city.id == market.id { Label(city.label, systemImage: "checkmark") }
+                    else { Text(city.label) }
+                }
+            }
+        } label: {
+            Text(market.label)
+                .font(.system(size: 10, weight: .semibold))
+                .lineLimit(1).minimumScaleFactor(0.65)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .frame(width: 110, height: 42)
+        .modifier(ReceiverKeyFace(active: true))
+        .help("Choose radio market: " + market.label)
+        }
+    }
+
+    private func changeMarket() {
+        resetStreamLookup()
         pendingTune?.cancel()
-        previewFrequency = Double(min(1080, max(880, Int((880 + 200 * fraction).rounded())))) / 10
+        dial.stop(message: "Changing city")
+        tuningStatus = "Loading FCC stations…"
+        directory.load(market)
+    }
+
+    private func selectFrequency(_ fraction: Double, _ commit: Bool) {
+        pendingTune?.cancel()
+        previewFrequency = ((lower + (upper - lower) * min(1, max(0, fraction))) / step).rounded() * step
         if commit { commitTune() }
     }
 
-    private func selectPosition(_ fraction: Double, _ commit: Bool) {
-        selectFrequency(fraction, commit)
-    }
+    private func selectPosition(_ fraction: Double, _ commit: Bool) { selectFrequency(fraction, commit) }
 
     private func scrollStations(_ steps: Int, haptic: Bool = false) {
-        guard !dial.busy, steps != 0 else { return }
-        let previous = Int(((displayedFrequency ?? 88) * 10).rounded())
-        let next = min(1080, max(880, previous + steps))
-        previewFrequency = Double(next) / 10
-        if haptic, previous != next {
-            let crossed = fmStations.filter { station in
-                guard let frequency = station.fmFrequency else { return false }
-                let channel = Int((frequency * 10).rounded())
-                return next > previous ? channel > previous && channel <= next : channel < previous && channel >= next
-            }
-            for station in crossed {
-                StationHaptics.crossed(from: -1, to: 0, stations: [station], favorites: dial.prefs.favorites)
+        guard steps != 0 else { return }
+        let previous = previewStation?.id
+        previewFrequency = min(upper, max(lower, (((previewFrequency ?? lower) + Double(steps) * step) / step).rounded() * step))
+        if haptic, let station = previewStation, station.id != previous {
+            let favorite = dial.prefs.favorites.contains { $0.title.localizedCaseInsensitiveContains(station.callsign) }
+            NSHapticFeedbackManager.defaultPerformer.perform(favorite ? .levelChange : .alignment, performanceTime: .now)
+            if favorite {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.065) {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                }
             }
         }
         pendingTune?.cancel()
@@ -354,22 +410,88 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     }
 
     private func commitTune() {
-        guard !dial.busy, previewFrequency != nil else { return }
         pendingTune?.cancel()
-        pendingTune = nil
-        if let station = previewStation {
-            previewFrequency = nil
-            if dial.source?.id != station.id || dial.playback == .stopped { dial.tune(station) }
-        } else {
-            dial.stop(message: "No station on this frequency")
+        // A background FCC refresh must not interrupt a stream already tuned to this station.
+        if let station = previewStation, activeStation?.id == station.id, activeMarketID == market.id,
+           activeSourceID == dial.source?.id, dial.playback != .stopped { return }
+        resetStreamLookup()
+        dial.stop(message: "Tuning")
+        if directory.loading && directory.stations.isEmpty { tuningStatus = "Loading FCC stations…"; return }
+        guard directory.error == nil || !directory.stations.isEmpty else { tuningStatus = "FCC data unavailable"; return }
+        guard let station = previewStation else { tuningStatus = "No station in nearby FCC records"; try? dial.audio.playStatic(); return }
+        let selectedMarket = market
+        activeStation = station
+        activeMarketID = selectedMarket.id
+        tuningStatus = "\(station.community), \(station.state) · Looking for stream…"
+        let saved = directory.rememberedStream(for: station, market: selectedMarket).map { [$0] } ?? []
+        let known = saved + dial.prefs.favorites + dial.prefs.history.map(\.source) + dial.stations
+        streamCandidates = MarketDirectory.matchingSources(known, station: station)
+        if streamCandidates.isEmpty { try? dial.audio.playStatic() }
+        else { playNextStream() }
+
+        streamTask = Task { @MainActor in
+            do {
+                let online = try await MarketDirectory.streams(for: station)
+                guard !Task.isCancelled, activeMarketID == selectedMarket.id, activeStation?.id == station.id,
+                      previewStation?.id == station.id else { return }
+                streamCandidates = MarketDirectory.matchingSources(streamCandidates + online, station: station)
+                streamLookupFinished = true
+                if activeSourceID == nil { playNextStream() }
+            } catch {
+                guard !Task.isCancelled, activeMarketID == selectedMarket.id, activeStation?.id == station.id,
+                      previewStation?.id == station.id else { return }
+                streamLookupFinished = true
+                streamLookupFailed = true
+                if activeSourceID == nil { playNextStream() }
+            }
         }
     }
 
-    private func cancelTune() {
-        pendingTune?.cancel()
-        pendingTune = nil
-        previewFrequency = nil
+    private func playNextStream() {
+        guard let station = activeStation, activeMarketID == market.id, previewStation?.id == station.id else { return }
+        guard let candidate = streamCandidates.first(where: { !attemptedStreamURLs.contains($0.url) }) else {
+            activeSourceID = nil
+            if streamLookupFinished {
+                tuningStatus = streamLookupFailed ? "Stream lookup unavailable" : "\(station.callsign) · No working matched stream"
+            } else {
+                tuningStatus = "\(station.callsign) · Looking for stream…"
+            }
+            try? dial.audio.playStatic()
+            return
+        }
+        attemptedStreamURLs.insert(candidate.url)
+        activeSourceID = candidate.id
+        tuningStatus = "\(station.community), \(station.state)"
+        dial.play(candidate, tuningEffect: true)
+        // An immediate decoder/setup failure does not emit a later playback transition.
+        if dial.playback == .stopped { activeSourceID = nil; playNextStream() }
     }
+
+    private func playbackChanged(_ playback: DialState.Playback) {
+        guard let station = activeStation, let source = dial.source,
+              activeMarketID == market.id, previewStation?.id == station.id,
+              activeSourceID == source.id else { return }
+        if playback == .playing {
+            directory.remember(source, for: station, market: market)
+        } else if playback == .stopped, dial.status != "Stopped" {
+            activeSourceID = nil
+            playNextStream()
+        }
+    }
+
+    private func resetStreamLookup() {
+        streamTask?.cancel()
+        streamTask = nil
+        activeStation = nil
+        activeMarketID = nil
+        activeSourceID = nil
+        streamCandidates = []
+        attemptedStreamURLs = []
+        streamLookupFinished = false
+        streamLookupFailed = false
+    }
+
+    private func cancelTune() { pendingTune?.cancel(); pendingTune = nil }
 
 }
 
@@ -461,7 +583,7 @@ struct ReceiverMetal: View {
                     for row in 0..<Int(size.height) {
                         let texture = Double((row * 61 + 17) % 101) / 100
                         let rect = CGRect(x: 0, y: Double(row), width: size.width, height: 0.5)
-                        context.fill(Path(rect), with: .color(texture > 0.5 ? .white.opacity(texture * 0.15) : .black.opacity(texture * 0.09)))
+                        context.fill(Path(rect), with: .color(texture > 0.5 ? .white.opacity(texture * 0.10) : .black.opacity(texture * 0.06)))
                     }
                 }.allowsHitTesting(false)
             }
@@ -496,7 +618,7 @@ private struct ReceiverGrille: View {
             .clipShape(.rect(cornerRadius: 6))
             .accessibilityHidden(true)
             ReceiverRule()
-            Text("DYNAMIC SPEAKER").font(.system(size: 8, weight: .bold, design: .monospaced)).tracking(2.6)
+            Text("DYNAMIC SPEAKER").font(.custom("Barlow-Regular", size: 8)).tracking(2.4)
                 .lineLimit(1).minimumScaleFactor(0.65)
         }
         .padding(10)

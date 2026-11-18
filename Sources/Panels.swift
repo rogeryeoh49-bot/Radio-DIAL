@@ -12,6 +12,7 @@ struct PanelBody: View {
     @State private var query = ""
     @State private var secret = ""
     @State private var message = ""
+    @State private var settingsTab = 0
     @State private var launching = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -20,7 +21,7 @@ struct PanelBody: View {
                 Text(heading).font(.title2.bold())
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title3) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Close")
+                    .buttonStyle(.plain).foregroundStyle(.secondary).focusable(pane != .settings).accessibilityLabel("Close")
             }
             switch pane {
             case .capture: capture
@@ -37,6 +38,9 @@ struct PanelBody: View {
             case .stream: stream
             case .custom: custom
             }
+        }
+        .background {
+            if pane == .settings { SettingsInitialFocus() }
         }
     }
 
@@ -111,7 +115,17 @@ struct PanelBody: View {
     }
 
     private var settings: some View {
-        TabView {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Settings category", selection: $settingsTab) {
+                Text("General").tag(0)
+                Text("Network").tag(1)
+                Text("Integrations").tag(2)
+                Text("Shortcuts").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Group {
+            if settingsTab == 0 {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Resume last source on launch", isOn: $dial.prefs.resumeOnLaunch)
                 Toggle("Show player in the menu bar", isOn: $dial.prefs.keepInMenuBar)
@@ -134,7 +148,8 @@ struct PanelBody: View {
                     Text("Two-letter country code").foregroundStyle(.secondary).font(.caption)
                 }
                 Spacer()
-            }.padding(14).tabItem { Text("General") }
+            }.padding(14)
+            } else if settingsTab == 1 {
             VStack(alignment: .leading, spacing: 12) {
                 Picker("Stream buffer", selection: $dial.prefs.profile) {
                     ForEach(["Low latency", "Balanced", "Stable"], id: \.self) { Text($0) }
@@ -142,7 +157,8 @@ struct PanelBody: View {
                 TextField("HTTP proxy, e.g. http://127.0.0.1:8080", text: $dial.prefs.proxy)
                 Text("Applies to new stream connections. Directory and podcast search use macOS network settings.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-            }.padding(14).tabItem { Text("Network") }
+            }.padding(14)
+            } else if settingsTab == 2 {
             VStack(alignment: .leading, spacing: 9) {
                 HStack {
                     TextField("API key", text: $dial.prefs.lastFMKey)
@@ -180,7 +196,8 @@ struct PanelBody: View {
                 TextField("Discord application ID", text: $dial.prefs.discordID)
                 Text("Rich Presence requires the Discord desktop app and your application ID.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-            }.padding(14).tabItem { Text("Integrations") }
+            }.padding(14)
+            } else {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Space    Play / Pause")
                 Text("⌘.       Stop")
@@ -189,9 +206,14 @@ struct PanelBody: View {
                 Text("⇧⌘M      Mute")
                 Text("⇧⌘I      Mini player")
                 Spacer()
-            }.font(.system(.callout, design: .monospaced)).padding(14).tabItem { Text("Shortcuts") }
+            }.font(.system(.callout, design: .monospaced)).padding(14)
+            }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 6))
         }
-        .frame(height: 249)
+        .frame(maxWidth: .infinity)
+        .frame(height: 275)
         .overlay(alignment: .bottom) {
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).padding(.bottom, 7) }
         }
@@ -234,7 +256,7 @@ struct PanelBody: View {
                     ReceiverThemePreview().frame(width: 176, height: 82)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(RadioReceiverStyle.name).font(.headline)
-                        Text("Brushed metal receiver with a tuning scale and station presets")
+                        Text("Now featuring US AM & FM stations")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -649,5 +671,20 @@ private struct PaletteThemePreview: View {
         .clipShape(.rect(cornerRadius: 6))
         .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(palette.accent.opacity(0.25)) }
         .accessibilityHidden(true)
+    }
+}
+
+private struct SettingsInitialFocus: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { InitialFocusView() }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class InitialFocusView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                window.makeFirstResponder(nil)
+            }
+        }
     }
 }

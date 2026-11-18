@@ -8,12 +8,13 @@ Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide
 
 **ALL FREE**. It is impossible to find a pure radio player that doesn't ask you to spend money. At least, I've never found one on either iOS or macOS. Yes, so I made a pure radio player to give you access to completely free radio worldwide. Full of features to fit any needs.
 
-## What’s new in 2.0
+## What’s new in 2.1
 
-- Browse stations with Cover Flow, trackpad gestures, and keyboard controls.
-- Choose from four color themes, the FR-01 receiver, and Cover Flow.
-- Open matched songs in Apple Music and control playback through macOS.
-- The FR-01 uses frequencies inferred from station names and streams stations over the internet; its catalog does not verify over-the-air broadcasts.
+- FR-01 adds US market selection and AM/FM station data from FCC records, with saved stream matching and fallback.
+- Cover Flow can show FCC frequencies for matched US call signs, with a country selector and refined artwork presentation.
+- Automatic song identification can retry when stations do not provide usable song metadata. An optional recognition setup is described below.
+- Check for updates from the Radio Dial menu, or let the app check automatically. Version 2.0 users should use the install command once to get the updater.
+- FR-01 searches FCC records within 45 km of each selected market; this is an approximation, not verified reception coverage. Stations still play through internet streams.
 
 ## Install on Mac
 
@@ -41,7 +42,7 @@ python3.12 -m venv "$HOME/Library/Application Support/Radio Dial/Recognition"
 - Select a station to play it. Right-click rows for stream tests, favorites, podcast downloads and other actions.
 - Use the record button to choose MP3, WAV, FLAC or Ogg, with optional splitting when the stream supplies new track metadata.
 - Use the top-right menu for the sleep timer, alarms, scheduled recording, playlists, equalizer presets, themes, stream status and settings.
-- Choose the FR-01 Receiver theme for a tuning dial, country selection, and four presets drawn from your favorite stations.
+- Choose the FR-01 Receiver theme for AM/FM tuning, a US city selector, and four presets drawn from your favorite stations.
 - Keep the app running and the Mac awake for scheduled actions. Radio Dial does not wake a sleeping Mac.
 - Last.fm and Discord require your own service credentials or application ID in Settings.
 - Settings and downloaded podcasts live under `~/Library/Application Support/Radio Dial`. The default recording folder is `~/Music/Radio Dial`.

@@ -215,6 +215,14 @@ final class StreamAudio {
         tuningNode.stop()
     }
 
+    func playStatic() throws {
+        halt()
+        guard let tuningSound else { return }
+        if !engine.isRunning { try engine.start() }
+        tuningNode.scheduleBuffer(tuningSound, at: nil, options: .loops)
+        tuningNode.play()
+    }
+
     func pause(_ paused: Bool) { if paused { node.pause() } else { node.play() } }
     func setVolume(_ value: Float) {
         node.volume = value

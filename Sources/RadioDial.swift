@@ -6,8 +6,10 @@ import SwiftUI
 @main
 enum RadioDialApp {
     @MainActor static func main() {
-        if let font = Bundle.main.url(forResource: "Punctum-Regular", withExtension: "ttf") {
-            CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
+        for name in ["Punctum-Regular", "BarlowCondensed-Regular", "Barlow-Regular"] {
+            if let font = Bundle.main.url(forResource: name, withExtension: "ttf") {
+                CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
+            }
         }
         let app = NSApplication.shared
         let delegate = DialDelegate()
@@ -23,6 +25,7 @@ private struct DialWindow: View {
     @State private var stationQuery = ""
     @State private var podcastQuery = ""
     @State private var countrySelection = CountrySelection.all
+    @State private var coverFlowCountryHovered = false
     @State private var genre = ""
     @State private var bitrate = 0
     @State private var sort = "clickcount"
@@ -50,7 +53,7 @@ private struct DialWindow: View {
     }
 
     private static let pinnedCountries = [
-        Catalog.Country(name: "USA", iso_3166_1: "US"),
+        Catalog.Country(name: "US", iso_3166_1: "US"),
         Catalog.Country(name: "UK", iso_3166_1: "GB"),
         Catalog.Country(name: "France", iso_3166_1: "FR")
     ]
@@ -62,8 +65,8 @@ private struct DialWindow: View {
             if dial.prefs.theme == RadioReceiverStyle.name && !dial.mini {
                 RadioReceiver(dial: dial, country: receiverCountry, tools: receiverTools)
             } else if dial.prefs.theme == "Cover Flow" && !dial.mini {
-                CoverFlow(dial: dial, artwork: coverFlowArtwork, library: stationLibraryButton, options: optionsMenu,
-                          keyboardEnabled: !showReceiverLibrary && dial.pane == nil,
+                CoverFlow(dial: dial, artwork: coverFlowArtwork, country: coverFlowCountry, library: stationLibraryButton, options: optionsMenu,
+                          countryFiltered: !countrySelection.code.isEmpty, keyboardEnabled: !showReceiverLibrary && dial.pane == nil,
                           supportsHDR: coverFlowSupportsHDR)
             } else {
                 standardLayout
@@ -106,11 +109,7 @@ private struct DialWindow: View {
             }
         }
         .onChange(of: dial.prefs.theme) { _, theme in
-            if theme == RadioReceiverStyle.name {
-                if dial.source?.fmFrequency == nil, dial.playback != .stopped { dial.stop(message: "Select an FM station") }
-                dial.section = .radio
-                resetReceiverFilters()
-            }
+            if theme == RadioReceiverStyle.name { dial.section = .radio }
         }
         .onChange(of: countrySelection.code) { _, _ in search() }
         .onChange(of: genre) { _, _ in search() }
@@ -149,6 +148,29 @@ private struct DialWindow: View {
         .menuIndicator(.hidden)
         .frame(width: 98, height: 42)
         .modifier(ReceiverKeyFace(active: true))
+    }
+
+    private var coverFlowCountry: some View {
+        countryMenu(resetFilters: true) { name in
+            Text(name)
+                .font(.custom("Punctum-Regular", size: 18))
+                .lineLimit(1)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .background {
+            Capsule()
+                .fill(.white.opacity(coverFlowCountryHovered ? 0.16 : 0))
+                .padding(.horizontal, -7)
+                .padding(.vertical, -4)
+        }
+        .contentShape(Capsule())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { coverFlowCountryHovered = hovering }
+        }
     }
 
     private var stationLibraryButton: some View {
@@ -403,7 +425,7 @@ private struct DialWindow: View {
     private var library: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                ForEach(dial.prefs.theme == RadioReceiverStyle.name ? [.radio, .favorites, .history] : DialState.Section.allCases, id: \.self) { item in
+                ForEach(DialState.Section.allCases, id: \.self) { item in
                     Button { dial.section = item } label: {
                         Label(item.rawValue.uppercased(), systemImage: sectionIcon(item))
                             .font(.system(size: 11, weight: .bold, design: .serif))
@@ -463,7 +485,7 @@ private struct DialWindow: View {
                 Button("Search") { search() }.buttonStyle(.borderedProminent)
             }
             if !dial.radioError.isEmpty { Text(dial.radioError).font(.caption).foregroundStyle(.orange) }
-            table(dial.prefs.theme == RadioReceiverStyle.name ? dial.stations.filter { $0.fmFrequency != nil } : dial.stations, empty: dial.busy ? "Loading stations…" : "No stations found.", more: dial.more) {
+            table(dial.stations, empty: dial.busy ? "Loading stations…" : "No stations found.", more: dial.more) {
                 dial.open($0)
             }
         }
@@ -488,7 +510,7 @@ private struct DialWindow: View {
             }
             Divider()
             countryOption("All Countries", selection: .all, resetFilters: resetFilters)
-            ForEach(countries) { country in
+            ForEach(countries.filter { country in !Self.pinnedCountries.contains(where: { $0.id == country.id }) }) { country in
                 countryOption(country.name, selection: .directory(country.id), resetFilters: resetFilters)
             }
         } label: {
@@ -505,7 +527,7 @@ private struct DialWindow: View {
             countrySelection = selection
             if resetFilters { resetReceiverFilters() }
         } label: {
-            if countrySelection == selection {
+            if countrySelection.code == selection.code {
                 Label(name, systemImage: "checkmark")
             } else {
                 Text(name)
@@ -554,7 +576,7 @@ private struct DialWindow: View {
                 Spacer()
                 Button("Import / Export") { dial.pane = .playlist }
             }
-            table(dial.prefs.favorites.filter { dial.prefs.theme == RadioReceiverStyle.name ? $0.fmFrequency != nil : (activeFavoriteType == 0 ? $0.isRadio : !$0.isRadio) }, empty: "No favorites here yet.") { dial.open($0) }
+            table(dial.prefs.favorites.filter { activeFavoriteType == 0 ? $0.isRadio : !$0.isRadio }, empty: "No favorites here yet.") { dial.open($0) }
         }
     }
 
@@ -571,7 +593,7 @@ private struct DialWindow: View {
             ScrollView {
                 if dial.prefs.history.isEmpty { emptyState("No listening history yet.") }
                 LazyVStack(spacing: 1) {
-                    ForEach(dial.prefs.history.filter { dial.prefs.theme != RadioReceiverStyle.name || $0.source.fmFrequency != nil }) { visit in
+                    ForEach(dial.prefs.history) { visit in
                         row(visit.source, hint: visit.date.formatted(date: .abbreviated, time: .shortened)) { dial.open(visit.source) }
                             .contextMenu {
                                 Button("Remove from History") { dial.prefs.history.removeAll { $0.id == visit.id } }
@@ -755,6 +777,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private var statusItem: NSStatusItem?
     private var preferenceObserver: AnyCancellable?
+    private let updates = UpdateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = DialState()
@@ -779,9 +802,15 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         model.bootstrap()
+        updates.start()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let dial = self?.dial, event.window?.attachedSheet == nil else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            if event.keyCode == 3, event.modifierFlags.contains(.function), modifiers.isEmpty,
+               event.window === self?.window {
+                self?.window?.toggleFullScreen(nil)
+                return nil
+            }
             if modifiers.isEmpty && event.keyCode == 49 && !(event.window?.firstResponder is NSTextView) {
                 if dial.prefs.theme == "Cover Flow", !dial.mini { return event }
                 dial.togglePlayback()
@@ -820,6 +849,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(item("About Radio Dial", #selector(showAbout)))
+        appMenu.addItem(item("Check for Updates…", #selector(checkForUpdates), "u"))
         appMenu.addItem(item("Settings…", #selector(showSettings), ","))
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Radio Dial", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -849,7 +879,23 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
         root.insertItem(editItem, at: 2)
+        let viewItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        let fullscreen = NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fullscreen.keyEquivalentModifierMask = [.control, .command]
+        viewMenu.addItem(fullscreen)
+        viewItem.submenu = viewMenu
+        root.insertItem(viewItem, at: 3)
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowItem.submenu = windowMenu
+        root.addItem(windowItem)
         NSApp.mainMenu = root
+        NSApp.windowsMenu = windowMenu
     }
 
     private func configureStatusItem(_ enabled: Bool) {
@@ -879,6 +925,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showPlayer() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func showAbout() { showPlayer(); dial?.pane = .about }
+    @objc private func checkForUpdates() { showPlayer(); Task { await updates.check(manual: true) } }
     @objc private func showSettings() { showPlayer(); dial?.pane = .settings }
     @objc private func showStream() { showPlayer(); dial?.pane = .custom }
     @objc private func importPlaylist() { showPlayer(); dial?.importList() }

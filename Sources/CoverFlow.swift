@@ -1,11 +1,14 @@
 import AppKit
 import SwiftUI
 
-struct CoverFlow<Library: View, Options: View>: View {
+struct CoverFlow<Country: View, Library: View, Options: View>: View {
     @ObservedObject var dial: DialState
     @ObservedObject var artwork: CoverFlowArtwork
+    @StateObject private var frequencyLookup = CoverFrequency()
+    let country: Country
     let library: Library
     let options: Options
+    let countryFiltered: Bool
     let keyboardEnabled: Bool
     let supportsHDR: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -27,7 +30,8 @@ struct CoverFlow<Library: View, Options: View>: View {
     private var stations: [Source] {
         var ids = Set<String>()
         let current = dial.source.map { [$0] } ?? []
-        return (dial.stations + dial.prefs.favorites + current).filter { $0.isRadio && ids.insert($0.id).inserted }
+        let favorites = countryFiltered ? [] : dial.prefs.favorites
+        return (dial.stations + favorites + current).filter { $0.isRadio && ids.insert($0.id).inserted }
     }
 
     var body: some View {
@@ -55,6 +59,7 @@ struct CoverFlow<Library: View, Options: View>: View {
                 Text("Cover Flow").font(.custom("Punctum-Regular", size: 25))
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
+                country
                 library
                 options
             }
@@ -234,7 +239,8 @@ struct CoverFlow<Library: View, Options: View>: View {
         .overlayPreferenceValue(CoverTopKey.self) { anchor in
             GeometryReader { geometry in
                 if let anchor, let station {
-                    let label = fmFrequency(station.title).map { $0 + " FM" } ?? "ONLINE"
+                    let label = frequencyLookup.frequencies[station.id].map { String(format: "%.1f FM", $0) }
+                        ?? fmFrequency(station.title).map { $0 + " FM" } ?? "ONLINE"
                     Text(label)
                         .font(.custom("Punctum-Regular", size: 24))
                         .foregroundStyle(.white.opacity(0.8))
@@ -252,6 +258,9 @@ struct CoverFlow<Library: View, Options: View>: View {
                 backdrop(center: 0.12, edge: 0.025).opacity(focus)
                 Color.black.opacity(0.16 * dwellAmount * focus)
             }
+        }
+        .task(id: station?.id) {
+            if let station { await frequencyLookup.resolve(station) }
         }
         .task(id: dwellStation) {
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { settledFocus = false }
@@ -671,16 +680,24 @@ private struct FlowCover: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: size, height: size)
-                    .background(Color(white: 0.13))
+                    .background(isFramedStation || album != nil ? Color(white: 0.13) : .clear)
                     .opacity(highlightOpacity)
                     .transition(.opacity)
             }
         }
         .frame(width: size, height: size)
-        .background(Color(white: 0.13))
+        .background(isFramedStation ? Color(white: 0.13) : .clear)
         .animation(.easeInOut(duration: 0.18), value: highlight.map(ObjectIdentifier.init))
         .clipShape(.rect(cornerRadius: 5))
-        .overlay { RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.18)) }
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(.white.opacity(isFramedStation ? 0.18 : (album == nil ? 0 : 0.18 * albumOpacity)))
+        }
+    }
+
+    private var isFramedStation: Bool {
+        guard let image else { return true }
+        return abs(image.width - image.height) <= max(image.width, image.height) / 50
     }
 
     private var placeholder: some View {
