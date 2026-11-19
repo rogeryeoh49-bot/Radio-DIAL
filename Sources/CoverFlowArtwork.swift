@@ -53,7 +53,8 @@ final class CoverFlowArtwork: ObservableObject {
         while inFlight.count < 6, let url = pending.popFirst() {
             inFlight.insert(url)
             Task { [weak self] in
-                let image = try? await Catalog.artworkThumbnail(from: url, maxPixels: 600, cachePolicy: .returnCacheDataElseLoad)
+                let maxPixels = url.host?.hasSuffix(".mzstatic.com") == true ? 1200 : 600
+                let image = try? await Catalog.artworkThumbnail(from: url, maxPixels: maxPixels, cachePolicy: .returnCacheDataElseLoad)
                 guard let self else { return }
                 if let image {
                     self.lastFailure.removeValue(forKey: url)

@@ -252,7 +252,7 @@ enum Catalog {
         var artwork = webURL(match.artworkUrl100)
         if let original = artwork, let host = original.host, host.hasSuffix(".mzstatic.com"),
            var components = URLComponents(url: original, resolvingAgainstBaseURL: false) {
-            components.path = components.path.replacingOccurrences(of: #"/100x100(?=[a-z]*\.[a-z]+$)"#, with: "/600x600", options: .regularExpression)
+            components.path = components.path.replacingOccurrences(of: #"/100x100(?=[a-z]*\.[a-z]+$)"#, with: "/1200x1200", options: .regularExpression)
             artwork = components.url ?? original
         }
         return SongMatch(artwork: artwork, appleMusicURL: webURL(match.trackViewUrl))
