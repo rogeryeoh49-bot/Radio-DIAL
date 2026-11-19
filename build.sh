@@ -27,7 +27,8 @@ else
 fi
 cp Info.plist "$app/Contents/Info.plist"
 cp recognize.py "$app/Contents/Resources/recognize.py"
-cp Resources/Punctum-Regular.ttf Resources/Punctum-OFL.txt Resources/BarlowCondensed-Regular.ttf Resources/Barlow-Regular.ttf Resources/Barlow-OFL.txt "$app/Contents/Resources/"
+cp Resources/VI-radio-selection.wav "$app/Contents/Resources/VI-radio-selection.wav"
+cp Resources/Punctum-Regular.ttf Resources/Punctum-OFL.txt Resources/BarlowCondensed-Regular.ttf Resources/BarlowCondensed-SemiBold.ttf Resources/Barlow-Regular.ttf Resources/Barlow-OFL.txt "$app/Contents/Resources/"
 if [[ -f RadioDial.icns ]]; then cp RadioDial.icns "$app/Contents/Resources/RadioDial.icns"; fi
 codesign --force --deep --sign - "$app"
 printf '%s\n' "$app"

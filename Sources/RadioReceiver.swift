@@ -666,6 +666,15 @@ struct ReceiverThemePreview: View {
 }
 
 enum StationHaptics {
+    static func selection(favorite: Bool) {
+        NSHapticFeedbackManager.defaultPerformer.perform(favorite ? .levelChange : .alignment, performanceTime: .now)
+        if favorite {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.065) {
+                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            }
+        }
+    }
+
     static func crossed(from old: Int, to new: Int, stations: [Source], favorites: [Source]) {
         guard old != new else { return }
         let favoriteIDs = Set(favorites.map(\.id))
@@ -675,13 +684,7 @@ enum StationHaptics {
         guard stations.indices.contains(first), stations.indices.contains(last) else { return }
         for index in stride(from: first, through: last, by: direction) {
             let favorite = favoriteIDs.contains(stations[index].id)
-            let pattern: NSHapticFeedbackManager.FeedbackPattern = favorite ? .levelChange : .alignment
-            NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
-            if favorite {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.065) {
-                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-                }
-            }
+            selection(favorite: favorite)
         }
     }
 }

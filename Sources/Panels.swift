@@ -115,6 +115,20 @@ struct PanelBody: View {
         }
     }
 
+    private var settingsCountries: [Catalog.Country] {
+        let pinned = [Catalog.Country(name: "US", iso_3166_1: "US"),
+                      Catalog.Country(name: "UK", iso_3166_1: "GB"),
+                      Catalog.Country(name: "France", iso_3166_1: "FR")]
+        let codes = Set(pinned.map(\.id))
+        var countries = pinned + dial.countries.filter { !codes.contains($0.id) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        if let saved = dial.prefs.defaultRadioCountry, !saved.isEmpty,
+           !countries.contains(where: { $0.id == saved }) {
+            countries.append(Catalog.Country(name: saved, iso_3166_1: saved))
+        }
+        return countries
+    }
+
     private var settings: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Settings category", selection: $settingsTab) {
@@ -122,12 +136,23 @@ struct PanelBody: View {
                 Text("Network").tag(1)
                 Text("Integrations").tag(2)
                 Text("Shortcuts").tag(3)
+                Text("VI radio").tag(4)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             Group {
             if settingsTab == 0 {
+            ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                Picker("Default station country", selection: Binding(
+                    get: { dial.prefs.defaultRadioCountry ?? "" },
+                    set: { dial.prefs.defaultRadioCountry = $0.isEmpty ? nil : $0 }
+                )) {
+                    Text("All Countries").tag("")
+                    ForEach(settingsCountries) { country in
+                        Text(country.name).tag(country.id)
+                    }
+                }
                 Toggle("Resume last source on launch", isOn: $dial.prefs.resumeOnLaunch)
                 Toggle("Show player in the menu bar", isOn: $dial.prefs.keepInMenuBar)
                 Toggle("Automatically download and install updates", isOn: $automaticUpdates)
@@ -153,8 +178,8 @@ struct PanelBody: View {
                     TextField("US", text: $dial.prefs.podcastCountry).frame(width: 70)
                     Text("Two-letter country code").foregroundStyle(.secondary).font(.caption)
                 }
-                Spacer()
-            }.padding(14)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            }
             } else if settingsTab == 1 {
             VStack(alignment: .leading, spacing: 12) {
                 Picker("Stream buffer", selection: $dial.prefs.profile) {
@@ -203,16 +228,10 @@ struct PanelBody: View {
                 Text("Rich Presence requires the Discord desktop app and your application ID.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }.padding(14)
+            } else if settingsTab == 4 {
+                VIRadioSettings(dial: dial)
             } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Space    Play / Pause")
-                Text("⌘.       Stop")
-                Text("⇧⌘R      Record")
-                Text("⌘↑ / ⌘↓  Volume")
-                Text("⇧⌘M      Mute")
-                Text("⇧⌘I      Mini player")
-                Spacer()
-            }.font(.system(.callout, design: .monospaced)).padding(14)
+            ShortcutSettings(dial: dial)
             }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -298,6 +317,27 @@ struct PanelBody: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Cover Flow, A tribute to iPod")
+
+            Button {
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { VIRadioController.shared.show() }
+            } label: {
+                HStack(spacing: 14) {
+                    HStack(spacing: 5) {
+                        ForEach(0..<5) { index in
+                            Rectangle().fill(.white.opacity(index == 2 ? 0.8 : 0.25))
+                                .frame(width: 24, height: 32)
+                                .overlay { if index == 2 { Rectangle().stroke(.white, lineWidth: 2) } }
+                        }
+                    }.frame(width: 176, height: 55).background(.black.opacity(0.8))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("VI radio").font(.headline)
+                        Text("Global radio selector").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                }.padding(10).background { themeCard(false) }
+            }.buttonStyle(.plain)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 9) {
                 ForEach(DialPalette.themes, id: \.self) { name in

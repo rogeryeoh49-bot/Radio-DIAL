@@ -19,3 +19,23 @@ enum TrackMetadataQuality {
         return .ambiguous
     }
 }
+
+struct TrackDisplayInfo {
+    let title: String
+    let artist: String
+
+    static func parse(_ raw: String, matchedTitle: String? = nil, matchedArtist: String? = nil) -> Self {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let matchedTitle, !matchedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return Self(title: matchedTitle, artist: matchedArtist ?? "")
+        }
+        let separator = [" – ", " — ", " - "].compactMap { text.range(of: $0) }
+            .min { $0.lowerBound < $1.lowerBound }
+        if let separator {
+            let artist = text[..<separator.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = text[separator.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !artist.isEmpty, !title.isEmpty { return Self(title: title, artist: artist) }
+        }
+        return Self(title: text, artist: "")
+    }
+}

@@ -214,6 +214,8 @@ enum Catalog {
     struct SongMatch {
         var artwork: URL?
         var appleMusicURL: URL?
+        var title: String?
+        var artist: String?
     }
 
     static func songMatch(_ track: String) async throws -> SongMatch? {
@@ -255,7 +257,7 @@ enum Catalog {
             components.path = components.path.replacingOccurrences(of: #"/100x100(?=[a-z]*\.[a-z]+$)"#, with: "/1200x1200", options: .regularExpression)
             artwork = components.url ?? original
         }
-        return SongMatch(artwork: artwork, appleMusicURL: webURL(match.trackViewUrl))
+        return SongMatch(artwork: artwork, appleMusicURL: webURL(match.trackViewUrl), title: match.trackName, artist: match.artistName)
     }
 
     struct Lyric: Decodable {

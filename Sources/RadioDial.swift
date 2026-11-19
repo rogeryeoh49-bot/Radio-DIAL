@@ -6,7 +6,7 @@ import SwiftUI
 @main
 enum RadioDialApp {
     @MainActor static func main() {
-        for name in ["Punctum-Regular", "BarlowCondensed-Regular", "Barlow-Regular"] {
+        for name in ["Punctum-Regular", "BarlowCondensed-Regular", "BarlowCondensed-SemiBold", "Barlow-Regular"] {
             if let font = Bundle.main.url(forResource: name, withExtension: "ttf") {
                 CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
             }
@@ -111,10 +111,19 @@ private struct DialWindow: View {
         .onChange(of: dial.prefs.theme) { _, theme in
             if theme == RadioReceiverStyle.name { dial.section = .radio }
         }
+        .onAppear { applyDefaultCountry() }
+        .onChange(of: dial.prefs.defaultRadioCountry) { _, _ in applyDefaultCountry() }
         .onChange(of: countrySelection.code) { _, _ in search() }
         .onChange(of: genre) { _, _ in search() }
         .onChange(of: bitrate) { _, _ in search() }
         .onChange(of: sort) { _, _ in search() }
+    }
+
+    private func applyDefaultCountry() {
+        let code = dial.prefs.defaultRadioCountry ?? ""
+        if code.isEmpty { countrySelection = .all }
+        else if Self.pinnedCountries.contains(where: { $0.id == code }) { countrySelection = .pinned(code) }
+        else { countrySelection = .directory(code) }
     }
 
     private func updateCoverFlowDisplay(_ window: NSWindow) {
@@ -503,7 +512,7 @@ private struct DialWindow: View {
             Self.pinnedCountries.first { $0.id == country.id } ?? country
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
-        let name = (Self.pinnedCountries + countries).first { $0.id == countrySelection.code }?.name ?? "All Countries"
+        let name = (Self.pinnedCountries + countries).first { $0.id == countrySelection.code }?.name ?? (countrySelection.code.isEmpty ? "All Countries" : countrySelection.code)
         return Menu {
             ForEach(Self.pinnedCountries) { country in
                 countryOption(country.name, selection: .pinned(country.id), resetFilters: resetFilters)
@@ -778,6 +787,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var preferenceObserver: AnyCancellable?
     private let updates = UpdateController.shared
+    private var viPreferences: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = DialState()
@@ -803,35 +813,36 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         model.bootstrap()
         updates.start()
+        VIRadioController.shared.configure(model)
+        viPreferences = model.$prefs.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                VIRadioController.shared.configure(model)
+                self?.updatePlaybackShortcuts()
+            }
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let dial = self?.dial, event.window?.attachedSheet == nil else { return event }
+            guard !VIRadioController.shared.visible, !VIShortcutRecorder.isRecording, let dial = self?.dial, event.window?.attachedSheet == nil else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
             if event.keyCode == 3, event.modifierFlags.contains(.function), modifiers.isEmpty,
                event.window === self?.window {
                 self?.window?.toggleFullScreen(nil)
                 return nil
             }
-            if modifiers.isEmpty && event.keyCode == 49 && !(event.window?.firstResponder is NSTextView) {
-                if dial.prefs.theme == "Cover Flow", !dial.mini { return event }
-                dial.togglePlayback()
-                return nil
-            }
-            if modifiers == .command {
-                switch event.keyCode {
-                case 31: dial.pane = .custom
-                case 47: dial.stop()
-                case 126: dial.setVolume(dial.prefs.volume + 5)
-                case 125: dial.setVolume(dial.prefs.volume - 5)
-                default: return event
-                }
-                return nil
-            }
-            if modifiers == [.command, .shift] {
-                switch event.keyCode {
-                case 15: dial.toggleRecording()
-                case 46: dial.toggleMute()
-                case 34: dial.mini.toggle()
-                default: return event
+            if let action = AppShortcutAction.allCases.first(where: {
+                let key = $0.binding(in: dial.prefs.shortcuts)
+                return key.keyCode == UInt32(event.keyCode) && key.modifiers == VIShortcut.modifiers(from: event)
+            }) {
+                if modifiers.isEmpty && event.window?.firstResponder is NSTextView { return event }
+                if action == .playPause, dial.prefs.theme == "Cover Flow", !dial.mini { return event }
+                if event.isARepeat && ![AppShortcutAction.volumeUp, .volumeDown].contains(action) { return nil }
+                switch action {
+                case .playPause: dial.togglePlayback()
+                case .stop: dial.stop()
+                case .record: dial.toggleRecording()
+                case .volumeUp: dial.setVolume(dial.prefs.volume + 5)
+                case .volumeDown: dial.setVolume(dial.prefs.volume - 5)
+                case .mute: dial.toggleMute()
+                case .mini: dial.mini.toggle()
                 }
                 return nil
             }
@@ -869,6 +880,9 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         playbackMenu.addItem(item("Stop", #selector(stop), "."))
         playbackMenu.addItem(item("Start / Stop Recording", #selector(record), "R"))
         playbackMenu.addItem(item("Mini Player", #selector(mini), "I"))
+        playbackMenu.addItem(item("Volume Up", #selector(volumeUp)))
+        playbackMenu.addItem(item("Volume Down", #selector(volumeDown)))
+        playbackMenu.addItem(item("Mute / Unmute", #selector(mute)))
         playbackItem.submenu = playbackMenu
         root.addItem(playbackItem)
         let editItem = NSMenuItem()
@@ -884,6 +898,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         let fullscreen = NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullscreen.keyEquivalentModifierMask = [.control, .command]
         viewMenu.addItem(fullscreen)
+        viewMenu.addItem(item("Show GTA Radio Selector — " + (dial?.prefs.viShortcut ?? VIShortcut()).label, #selector(showVIRadio)))
         viewItem.submenu = viewMenu
         root.insertItem(viewItem, at: 3)
         let windowItem = NSMenuItem()
@@ -896,6 +911,22 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         root.addItem(windowItem)
         NSApp.mainMenu = root
         NSApp.windowsMenu = windowMenu
+        updatePlaybackShortcuts()
+    }
+
+    private func updatePlaybackShortcuts() {
+        guard let dial else { return }
+        let actions: [Selector: AppShortcutAction] = [#selector(playPause): .playPause, #selector(stop): .stop,
+            #selector(record): .record, #selector(volumeUp): .volumeUp, #selector(volumeDown): .volumeDown,
+            #selector(mute): .mute, #selector(mini): .mini]
+        for menu in NSApp.mainMenu?.items.compactMap(\.submenu) ?? [] {
+            for item in menu.items {
+                guard let selector = item.action, let action = actions[selector] else { continue }
+                let key = action.binding(in: dial.prefs.shortcuts)
+                item.keyEquivalent = key.menuKey
+                item.keyEquivalentModifierMask = key.eventModifiers
+            }
+        }
     }
 
     private func configureStatusItem(_ enabled: Bool) {
@@ -923,12 +954,16 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    @objc private func showVIRadio() { VIRadioController.shared.show() }
     @objc private func showPlayer() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func showAbout() { showPlayer(); dial?.pane = .about }
     @objc private func checkForUpdates() { showPlayer(); updates.check() }
     @objc private func showSettings() { showPlayer(); dial?.pane = .settings }
     @objc private func showStream() { showPlayer(); dial?.pane = .custom }
     @objc private func importPlaylist() { showPlayer(); dial?.importList() }
+    @objc private func volumeUp() { dial?.setVolume((dial?.prefs.volume ?? 0) + 5) }
+    @objc private func volumeDown() { dial?.setVolume((dial?.prefs.volume ?? 0) - 5) }
+    @objc private func mute() { dial?.toggleMute() }
     @objc private func playPause() { dial?.togglePlayback() }
     @objc private func stop() { dial?.stop() }
     @objc private func record() { showPlayer(); dial?.toggleRecording() }
@@ -936,6 +971,8 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let dial else { return .terminateNow }
+        VIRadioController.shared.shutdown()
+        viPreferences?.cancel()
         dial.stop()
         nowPlaying?.tearDown()
         dial.audio.afterRecordingsSaved { sender.reply(toApplicationShouldTerminate: true) }

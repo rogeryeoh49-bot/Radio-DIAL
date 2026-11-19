@@ -121,6 +121,8 @@ final class StreamAudio {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private let tuningNode = AVAudioPlayerNode()
+    private let selectionNode = AVAudioPlayerNode()
+    private lazy var selectionTone = VISelectionTone.bundledBuffer() ?? VISelectionTone.makeBuffer(format: AudioTools.format)
     private lazy var tuningSound = TuningStatic.makeBuffer()
     private let equalizer = AVAudioUnitEQ(numberOfBands: 5)
     private var reader: Decoder?
@@ -141,6 +143,8 @@ final class StreamAudio {
         engine.attach(node)
         engine.attach(tuningNode)
         engine.connect(tuningNode, to: engine.mainMixerNode, format: AudioTools.format)
+        engine.attach(selectionNode)
+        engine.connect(selectionNode, to: engine.mainMixerNode, format: AudioTools.format)
         engine.attach(equalizer)
         engine.connect(node, to: equalizer, format: AudioTools.format)
         engine.connect(equalizer, to: engine.mainMixerNode, format: AudioTools.format)
@@ -223,10 +227,22 @@ final class StreamAudio {
         tuningNode.play()
     }
 
+    func playSelectionTone() {
+        guard let selectionTone else { return }
+        if !engine.isRunning {
+            do { try engine.start() } catch { return }
+        }
+        // Retrigger immediately rather than queuing notes during fast navigation.
+        selectionNode.stop()
+        selectionNode.scheduleBuffer(selectionTone)
+        selectionNode.play()
+    }
+
     func pause(_ paused: Bool) { if paused { node.pause() } else { node.play() } }
     func setVolume(_ value: Float) {
         node.volume = value
         tuningNode.volume = value
+        selectionNode.volume = value
     }
     func setBalance(_ value: Float) { node.pan = value }
     func setEQ(_ values: [Double]) {

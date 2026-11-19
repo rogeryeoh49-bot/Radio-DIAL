@@ -147,6 +147,7 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                     .padding(.bottom, size * 0.16)
                     .background {
                         CoverFlowInput(
+                            playShortcut: AppShortcutAction.playPause.binding(in: dial.prefs.shortcuts),
                             keyboardEnabled: keyboardEnabled,
                             scroll: { delta, delay in
                                 scroll(delta, pointSpacing: size * 0.69, settleAfter: delay)
@@ -531,6 +532,7 @@ private struct PlayingStatusLabel: View {
 }
 
 private struct CoverFlowInput: NSViewRepresentable {
+    let playShortcut: VIShortcut
     let keyboardEnabled: Bool
     let scroll: (CGFloat, Duration?) -> Void
     let play: () -> Void
@@ -542,6 +544,7 @@ private struct CoverFlowInput: NSViewRepresentable {
         view.play = play
         view.hold = hold
         view.keyboardEnabled = keyboardEnabled
+        view.playShortcut = playShortcut
     }
 
     final class Input: NSView {
@@ -549,6 +552,7 @@ private struct CoverFlowInput: NSViewRepresentable {
         var play: () -> Void = {}
         var hold: (Int?) -> Void = { _ in }
         var keyboardEnabled = true
+        var playShortcut = AppShortcutAction.playPause.defaultKey
         private var monitor: Any?
         private var horizontalGesture = false
         private var heldKey: UInt16?
@@ -585,25 +589,26 @@ private struct CoverFlowInput: NSViewRepresentable {
         }
 
         private func handleKey(_ event: NSEvent, window: NSWindow) -> Bool {
+            guard !VIShortcutRecorder.isRecording else { return false }
             let isArrow = event.keyCode == 123 || event.keyCode == 124
-            let isSpace = event.keyCode == 49
-            guard isArrow || isSpace else { return false }
+            let isPlay = UInt32(event.keyCode) == playShortcut.keyCode && VIShortcut.modifiers(from: event) == playShortcut.modifiers
+            guard isArrow || isPlay else { return false }
             if event.type == .keyUp && isArrow {
                 guard heldKey == event.keyCode else { return false }
                 releaseKey()
                 return true
             }
             guard keyboardEnabled, window.isKeyWindow, window.attachedSheet == nil,
-                  !(window.firstResponder is NSTextView),
-                  event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+                  !(window.firstResponder is NSTextView) else { return false }
+            if isPlay {
+                if event.type == .keyDown && !event.isARepeat { play() }
+                return true
+            }
+            guard event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
             if event.type == .keyDown && !event.isARepeat {
-                if isSpace {
-                    play()
-                } else {
-                    releaseKey()
-                    heldKey = event.keyCode
-                    hold(event.keyCode == 123 ? -1 : 1)
-                }
+                releaseKey()
+                heldKey = event.keyCode
+                hold(event.keyCode == 123 ? -1 : 1)
             }
             return true
         }

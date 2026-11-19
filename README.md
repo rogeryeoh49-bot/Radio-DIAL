@@ -8,13 +8,14 @@ Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide
 
 **ALL FREE**. It is impossible to find a pure radio player that doesn't ask you to spend money. At least, I've never found one on either iOS or macOS. Yes, so I made a pure radio player to give you access to completely free radio worldwide. Full of features to fit any needs.
 
-## What’s new in 2.1
+## What’s new in 2.2
 
-- FR-01 adds US market selection and AM/FM station data from FCC records, with saved stream matching and fallback.
-- Cover Flow can show FCC frequencies for matched US call signs, with a country selector and refined artwork presentation.
-- Automatic song identification can retry when stations do not provide usable song metadata. An optional recognition setup is described below.
-- Check for updates from the Radio Dial menu, or let the app check automatically. Existing installations can use the install command once to get the Sparkle updater.
-- FR-01 searches FCC records within 45 km of each selected market; this is an approximation, not verified reception coverage. Stations still play through internet streams.
+- **VI radio**, a GTA VI–inspired global radio selector: hold **Option + Q**, browse a sliding row of station logos, and switch stations from another app.
+- Immediate or confirmation-based playback, preloaded logos, favorite stars, loading indicators, a short selection sound and trackpad haptics.
+- Customizable shortcuts for playback, recording, volume, mute and the mini player, with individual resets and Reset All.
+- A saved default station country and restoration of the last source.
+
+[Read the full 2.2.0 release notes](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/tag/v2.2.0) · [All releases](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases)
 
 ## Install on Mac
 
@@ -36,6 +37,14 @@ xattr -dr com.apple.quarantine "$HOME/Applications/Radio Dial.app"
 
 This removes macOS’s quarantine attribute from that copy of the app. If you installed it somewhere else, replace the path with the location of your Radio Dial.app. Then open the app again.
 
+## VI radio selector
+
+Hold **Option + Q** from any app to open the full-screen VI radio selector. By default, navigating immediately plays the selected station; releasing the shortcut closes the selector. Favorites appear first and display a gold star to the left of the station name; a loading spinner appears on the right while connecting. VI radio uses a short selection tone and trackpad haptics instead of loading static; favorite stations give stronger feedback. Turn Off pauses playback and closes the selector. Song titles and artists appear on separate lines with matching typography. The current station remains available.
+
+In **Settings → VI radio**, enable or disable the global shortcut, record a custom shortcut, or choose toggle mode. Station switching can play immediately (the default) or wait for Space, Return or a logo click. In confirmation mode, releasing the opening shortcut closes without confirming the preview. In press mode, press the shortcut once to open and again to close without changing playback; Return or click confirms a station. Tab browses forward; The backtick key (above Tab) and Shift-Tab browse backward. Previous/next keys are customizable in VI radio settings. Space or Return confirms playback. Navigation hints appear after 8 seconds without key presses, clicks or scrolling, and hide again on those actions. Moving the mouse does not reset the timer. Caps Lock can still be assigned as a custom navigation key and retains its normal macOS behavior. Station logos preload around the current selection and stay cached between openings. You can also open the selector from **View** or the **VI radio** card in Themes.
+
+The shortcut uses native macOS hotkey registration and requires no Accessibility or Input Monitoring permission. If another app or macOS has reserved the shortcut, choose another combination; the View and Themes entries remain available. The overlay opens on the screen containing the pointer and can join Spaces and full-screen apps where macOS permits it; protected system screens are excluded.
+
 ## Build and run
 
 Run `./build.sh` with the macOS Command Line Tools installed. It builds and locally signs `build/Radio Dial.app` for the current Mac. Use `./build.sh --universal` to build for Apple silicon and Intel. For a source build, install FFmpeg with Homebrew or set `FFMPEG_PATH`.
@@ -48,6 +57,8 @@ python3.12 -m venv "$HOME/Library/Application Support/Radio Dial/Recognition"
 ```
 
 ## Using it
+
+**Settings → Shortcuts** lets you change playback, recording, volume, mute and mini-player shortcuts. Click a key to record a new binding; use its Reset button or Reset All to restore defaults. These shortcuts apply while Radio Dial is active. The VI radio global shortcut is configured separately in its own settings tab.
 
 - Select a station to play it. Right-click rows for stream tests, favorites, podcast downloads and other actions.
 - Use the record button to choose MP3, WAV, FLAC or Ogg, with optional splitting when the stream supplies new track metadata.

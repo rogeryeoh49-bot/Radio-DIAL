@@ -9,3 +9,8 @@ swiftc Sources/ReleaseVersion.swift Tests/ReleaseVersionTests.swift -o "$task_tm
 "$task_tmp/version"
 swiftc Sources/Catalog.swift Sources/RadioMarkets.swift Tests/MarketMatchingTests.swift -o "$task_tmp/market"
 "$task_tmp/market"
+
+swiftc Sources/VISelectionTone.swift Tests/VISelectionToneTests.swift -o "$task_tmp/selection-tone"
+"$task_tmp/selection-tone"
+swiftc Sources/KeyboardShortcuts.swift Tests/KeyboardShortcutsTests.swift -o "$task_tmp/shortcuts"
+"$task_tmp/shortcuts"

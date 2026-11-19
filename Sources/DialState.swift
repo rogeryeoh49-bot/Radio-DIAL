@@ -23,6 +23,15 @@ struct Preferences: Codable {
     var profile = "Balanced"
     var proxy = ""
     var podcastCountry = "US"
+    // Optional for compatibility with settings saved by earlier releases.
+    var defaultRadioCountry: String?
+    var viEnabled: Bool?
+    var viToggleMode: Bool?
+    var viImmediatePlayback: Bool?
+    var viShortcut: VIShortcut?
+    var shortcuts: [String: VIShortcut]?
+    var viPreviousKey: VIShortcut?
+    var viNextKey: VIShortcut?
     var radioMarket: String?
     var radioBand: String?
     var automaticRecognition = false
@@ -45,6 +54,7 @@ final class DialState: ObservableObject {
     @Published var track = ""
     @Published var art: URL?
     @Published var appleMusicURL: URL?
+    @Published var matchedSong: Catalog.SongMatch?
     @Published var status = "Choose a station to start listening."
     @Published var playback = Playback.stopped
     @Published var recording = false
@@ -115,6 +125,8 @@ final class DialState: ObservableObject {
         var saved = (try? Data(contentsOf: settingsURL)).flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
         saved.visualizer = Scope.currentMode(saved.visualizer)
         saved.theme = DialPalette.currentTheme(saved.theme)
+        if saved.viPreviousKey?.keyCode == 50, saved.viPreviousKey?.label == "·" { saved.viPreviousKey?.label = "`" }
+        if saved.viNextKey?.keyCode == 50, saved.viNextKey?.label == "·" { saved.viNextKey?.label = "`" }
         prefs = saved
         source = prefs.last
         art = prefs.last?.artwork
@@ -161,7 +173,7 @@ final class DialState: ObservableObject {
     func bootstrap() {
         guard !loaded else { return }
         loaded = true
-        searchStations(name: "", country: "", tag: "", min: 0, sort: "clickcount")
+        searchStations(name: "", country: prefs.defaultRadioCountry ?? "", tag: "", min: 0, sort: "clickcount")
         Task {
             if let stats: Catalog.Stats = try? await Catalog.radio("/json/stats") { stationCount = stats.stations }
         }
@@ -271,10 +283,10 @@ final class DialState: ObservableObject {
         if item.feed != nil { openPodcast(item) } else { tune(item) }
     }
 
-    func tune(_ item: Source) {
+    func tune(_ item: Source, tuningEffect: Bool = true) {
         let switchingStations = item.isRadio && source?.isRadio == true &&
             source?.id != item.id && playback != .stopped
-        play(item, tuningEffect: switchingStations)
+        play(item, tuningEffect: switchingStations && tuningEffect)
     }
 
     func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true, remainPaused: Bool = false, tuningEffect: Bool = false) {
@@ -294,6 +306,7 @@ final class DialState: ObservableObject {
         track = ""
         trackOrigin = .none
         appleMusicURL = nil
+        matchedSong = nil
         lyrics = nil
         lyricStatus = ""
         art = item.artwork
@@ -574,6 +587,7 @@ final class DialState: ObservableObject {
         }
         track = cleaned
         appleMusicURL = nil
+        matchedSong = nil
         art = artwork ?? source?.artwork
         trackStart = elapsed
         lyrics = nil
@@ -592,6 +606,7 @@ final class DialState: ObservableObject {
             let match = try? await Catalog.songMatch(cleaned)
             guard !Task.isCancelled, track == cleaned else { return }
             appleMusicURL = match?.appleMusicURL
+            matchedSong = match
             if art == source?.artwork, let artwork = match?.artwork { art = artwork }
         }
         if pane == .lyrics { findLyrics(cleaned) }
