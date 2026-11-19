@@ -26,6 +26,16 @@ curl -fsSL https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/latest/downloa
 
 The installer puts Radio DIAL in `~/Applications` and downloads a [standalone FFmpeg decoder](https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1) if needed for playback. Open it from that folder or run `open "$HOME/Applications/Radio Dial.app"`. You can also [download the app ZIP](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/latest) and provide your own FFmpeg. The app is locally signed and has not been notarized by Apple.
 
+### If macOS blocks the app
+
+Radio DIAL is not notarized by Apple, so macOS may show a security warning on first launch. If you downloaded Radio DIAL from this repository and want to open it, run:
+
+```sh
+xattr -dr com.apple.quarantine "$HOME/Applications/Radio Dial.app"
+```
+
+This removes macOS’s quarantine attribute from that copy of the app. If you installed it somewhere else, replace the path with the location of your Radio Dial.app. Then open the app again.
+
 ## Build and run
 
 Run `./build.sh` with the macOS Command Line Tools installed. It builds and locally signs `build/Radio Dial.app` for the current Mac. Use `./build.sh --universal` to build for Apple silicon and Intel. For a source build, install FFmpeg with Homebrew or set `FFMPEG_PATH`.
