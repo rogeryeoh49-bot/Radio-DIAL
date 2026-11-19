@@ -8,11 +8,15 @@
     <key>CFBundleDisplayName</key><string>Radio Dial</string>
     <key>CFBundleName</key><string>Radio Dial</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>2.1.0</string>
-    <key>CFBundleVersion</key><string>5</string>
+    <key>CFBundleShortVersionString</key><string>2.1.1</string>
+    <key>CFBundleVersion</key><string>6</string>
     <key>CFBundleIconFile</key><string>RadioDial</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
+    <key>SUFeedURL</key><string>https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>b53wHfAVwM04xbTezTzU97KStubwhCtMftmjEHm0doE=</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAutomaticallyUpdate</key><false/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict>

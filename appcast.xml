@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Radio Dial Updates</title>
+        <link>https://github.com/rogeryeoh49-bot/Radio-DIAL</link>
+        <description>Radio Dial releases</description>
+        <language>en</language>
+        <item>
+            <title>2.1.1</title>
+            <pubDate>Thu, 19 Nov 2026 17:18:13 +0800</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>2.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Radio Dial 2.1.1</h2><ul><li>Added Sparkle update checks with release notes, reminders and version skipping.</li><li>Added an option in General settings to automatically download and install updates.</li></ul>
+]]></description>
+            <enclosure url="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v2.1.1/Radio-Dial-macOS.zip" length="3842985" type="application/octet-stream" sparkle:edSignature="1vLw+2J1soj8ryj2WnmZdbpbU1usOcvxZpxjR9NlKhgqxsmeU2vS6X2ekT3l8/9cf9/oV+zaB7pPYmb1BX9ADg=="/>
+        </item>
+    </channel>
+</rss>

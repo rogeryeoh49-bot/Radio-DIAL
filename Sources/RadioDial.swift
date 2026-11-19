@@ -777,7 +777,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private var statusItem: NSStatusItem?
     private var preferenceObserver: AnyCancellable?
-    private let updates = UpdateController()
+    private let updates = UpdateController.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = DialState()
@@ -925,7 +925,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showPlayer() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func showAbout() { showPlayer(); dial?.pane = .about }
-    @objc private func checkForUpdates() { showPlayer(); Task { await updates.check(manual: true) } }
+    @objc private func checkForUpdates() { showPlayer(); updates.check() }
     @objc private func showSettings() { showPlayer(); dial?.pane = .settings }
     @objc private func showStream() { showPlayer(); dial?.pane = .custom }
     @objc private func importPlaylist() { showPlayer(); dial?.importList() }

@@ -14,6 +14,7 @@ struct PanelBody: View {
     @State private var message = ""
     @State private var settingsTab = 0
     @State private var launching = SMAppService.mainApp.status == .enabled
+    @State private var automaticUpdates = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -129,6 +130,11 @@ struct PanelBody: View {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Resume last source on launch", isOn: $dial.prefs.resumeOnLaunch)
                 Toggle("Show player in the menu bar", isOn: $dial.prefs.keepInMenuBar)
+                Toggle("Automatically download and install updates", isOn: $automaticUpdates)
+                    .onAppear { automaticUpdates = UpdateController.shared.automaticallyInstallsUpdates }
+                    .onChange(of: automaticUpdates) { _, enabled in
+                        UpdateController.shared.automaticallyInstallsUpdates = enabled
+                    }
                 Toggle("Open at login", isOn: $launching)
                     .onChange(of: launching) { _, enabled in
                         do {
@@ -213,7 +219,7 @@ struct PanelBody: View {
             .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 6))
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 275)
+        .frame(height: 305)
         .overlay(alignment: .bottom) {
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).padding(.bottom, 7) }
         }

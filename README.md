@@ -13,7 +13,7 @@ Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide
 - FR-01 adds US market selection and AM/FM station data from FCC records, with saved stream matching and fallback.
 - Cover Flow can show FCC frequencies for matched US call signs, with a country selector and refined artwork presentation.
 - Automatic song identification can retry when stations do not provide usable song metadata. An optional recognition setup is described below.
-- Check for updates from the Radio Dial menu, or let the app check automatically. Version 2.0 users should use the install command once to get the updater.
+- Check for updates from the Radio Dial menu, or let the app check automatically. Existing installations can use the install command once to get the Sparkle updater.
 - FR-01 searches FCC records within 45 km of each selected market; this is an approximation, not verified reception coverage. Stations still play through internet streams.
 
 ## Install on Mac
@@ -54,3 +54,9 @@ python3.12 -m venv "$HOME/Library/Application Support/Radio Dial/Recognition"
 contribute different gorgeous themes or any other things, and help turn it into the No. 1 free radio player someday. 
   
 ## Contact me at: [rogeryeoh49@gmail.com](mailto:rogeryeoh49@gmail.com) ##
+
+### Sparkle update releases
+
+Radio Dial uses Sparkle for update checks. The General settings option controls automatic download and installation; automatic checks remain enabled when it is off. Before distributing the first Sparkle-enabled version, publish `appcast.xml` on the repository's `main` branch. Existing installations need to install that version once before they can receive Sparkle updates.
+
+For every later release, increment both `CFBundleShortVersionString` and the numeric `CFBundleVersion` in `Info.plist`. Write release notes as an HTML fragment, then run `./prepare-update.sh path/to/notes.html`. Upload the generated ZIP to the matching GitHub release and publish the generated `appcast.xml` to `main` only after the ZIP is available. The Sparkle signing key is stored in the macOS Keychain under account `org.radiodial.macos`; preserve a secure backup of this private key. Never commit it to the repository. Build and test the update from an older installed Sparkle-enabled release before announcing it.
