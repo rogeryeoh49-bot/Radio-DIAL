@@ -5,17 +5,24 @@ import Foundation
 
 @MainActor
 final class CoverFlowArtwork: ObservableObject {
-    private let images = NSCache<NSURL, CGImage>()
+    private static let sharedImages: NSCache<NSURL, CGImage> = {
+        let cache = NSCache<NSURL, CGImage>()
+        cache.totalCostLimit = 128 * 1024 * 1024
+        cache.countLimit = 320
+        return cache
+    }()
+    private let images = CoverFlowArtwork.sharedImages
     private var pending: ArraySlice<URL> = []
     private var pinnedURLs = Set<URL>()
     private var pinned: [URL: CGImage] = [:]
     private var inFlight: Set<URL> = []
     private var lastFailure: [URL: Date] = [:]
 
-    init() {
-        images.totalCostLimit = 128 * 1024 * 1024
-        images.countLimit = 320
+    static func prepare(_ image: CGImage, for url: URL) {
+        sharedImages.setObject(image, forKey: url as NSURL, cost: image.bytesPerRow * image.height)
     }
+
+    static func hasPreparedImage(for url: URL) -> Bool { sharedImages.object(forKey: url as NSURL) != nil }
 
     func image(for url: URL?) -> CGImage? {
         guard let url else { return nil }
@@ -24,11 +31,11 @@ final class CoverFlowArtwork: ObservableObject {
 
     static func priorityURLs(in stations: [Source], around index: Int, playingArtwork: URL?) -> [URL] {
         guard stations.indices.contains(index) else { return [] }
-        var ordered = [stations[index].artwork, playingArtwork].compactMap { $0 }
+        var ordered = [stations[index].stationArtwork, playingArtwork].compactMap { $0 }
         let farthest = max(index, stations.count - 1 - index)
         for distance in 0..<farthest {
             for neighbor in [index - distance - 1, index + distance + 1] where stations.indices.contains(neighbor) {
-                if let url = stations[neighbor].artwork { ordered.append(url) }
+                if let url = stations[neighbor].stationArtwork { ordered.append(url) }
             }
         }
         var seen = Set<URL>()

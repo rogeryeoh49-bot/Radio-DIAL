@@ -16,26 +16,24 @@ struct ShortcutSettings: View {
         error = ""
     }
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(AppShortcutAction.allCases) { action in
-                    HStack {
-                        Text(action.title).frame(maxWidth: .infinity, alignment: .leading)
-                        VIShortcutRecorder(shortcut: Binding(get: { action.binding(in: dial.prefs.shortcuts) }, set: { save($0, for: action) }), applicationShortcut: true)
-                            .frame(width: 145, height: 27)
-                            .accessibilityLabel("Change \(action.title) shortcut")
-                        Button("Reset") { save(action.defaultKey, for: action) }
-                            .accessibilityLabel("Reset \(action.title) shortcut")
-                    }
-                }
-                if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.orange) }
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(AppShortcutAction.allCases) { action in
                 HStack {
-                    Text("Click a shortcut to change it. Applies while Radio Dial is active.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Reset All") { dial.prefs.shortcuts = nil; error = "" }
+                    Text(action.title).frame(maxWidth: .infinity, alignment: .leading)
+                    VIShortcutRecorder(shortcut: Binding(get: { action.binding(in: dial.prefs.shortcuts) }, set: { save($0, for: action) }), applicationShortcut: true)
+                        .frame(width: 145, height: 27)
+                        .accessibilityLabel("Change \(action.title) shortcut")
+                    Button("Reset") { save(action.defaultKey, for: action) }
+                        .accessibilityLabel("Reset \(action.title) shortcut")
                 }
-            }.padding(14)
+            }
+            if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.orange) }
+            HStack {
+                Text("Click a shortcut to change it. Applies while Radio Dial is active.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset All") { dial.prefs.shortcuts = nil; error = "" }
+            }
         }
     }
 }

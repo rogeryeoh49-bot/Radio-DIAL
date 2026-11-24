@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Radio-DIAL app icon">
+ <defs>
+  <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#232323"/><stop offset=".41" stop-color="#191919"/><stop offset=".76" stop-color="#121212"/><stop offset="1" stop-color="#0b0b0b"/></linearGradient>
+  <linearGradient id="bodyEdge" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#424242"/><stop offset=".56" stop-color="#242424"/><stop offset="1" stop-color="#0b0b0b"/></linearGradient>
+  <linearGradient id="display" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#070707"/><stop offset=".56" stop-color="#0b0b0b"/><stop offset="1" stop-color="#111111"/></linearGradient>
+  <linearGradient id="ticks" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#eeeeee"/><stop offset="1" stop-color="#999999"/></linearGradient>
+  <linearGradient id="needle" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e33119"/><stop offset=".35" stop-color="#ff592e"/><stop offset=".55" stop-color="#fff3ce"/><stop offset=".75" stop-color="#ff4c2b"/><stop offset="1" stop-color="#d52618"/></linearGradient>
+  <radialGradient id="redGlow"><stop stop-color="#ff2b1c" stop-opacity=".58"/><stop offset=".45" stop-color="#ff3119" stop-opacity=".22"/><stop offset="1" stop-color="#ff3119" stop-opacity="0"/></radialGradient>
+  <linearGradient id="knobRim" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#777777"/><stop offset=".28" stop-color="#252525"/><stop offset=".56" stop-color="#666666"/><stop offset=".83" stop-color="#252525"/><stop offset="1" stop-color="#101010"/></linearGradient>
+  <linearGradient id="knob" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#565656"/><stop offset=".38" stop-color="#3e3e3e"/><stop offset=".75" stop-color="#353535"/><stop offset="1" stop-color="#252525"/></linearGradient>
+  <radialGradient id="hole"><stop stop-color="#ffffff"/><stop offset=".68" stop-color="#f0f0f0"/><stop offset="1" stop-color="#b6b6b6"/></radialGradient>
+  <filter id="drop" x="-25%" y="-25%" width="150%" height="155%"><feGaussianBlur stdDeviation="10"/></filter>
+  <filter id="glow" x="-300%" y="-70%" width="700%" height="240%"><feGaussianBlur stdDeviation="8"/></filter>
+  <filter id="knobShadow" x="-35%" y="-35%" width="170%" height="175%"><feGaussianBlur stdDeviation="5"/></filter>
+  <clipPath id="bodyClip"><rect x="47" y="44" width="418" height="423" rx="96"/></clipPath>
+ </defs>
+ <rect x="51" y="55" width="410" height="414" rx="96" fill="#000" opacity=".43" filter="url(#drop)"/>
+ <rect x="47" y="44" width="418" height="423" rx="96" fill="url(#bodyEdge)"/>
+ <rect x="50" y="47" width="412" height="416" rx="93" fill="url(#body)"/>
+ <g clip-path="url(#bodyClip)">
+  <ellipse cx="242" cy="-100" rx="285" ry="275" fill="#ffffff" opacity=".035"/>
+ </g>
+ <!-- tuner window -->
+ <rect x="79" y="104" width="356" height="116" rx="55" fill="#050505" opacity=".85"/>
+ <rect x="80" y="106" width="354" height="111" rx="53" fill="url(#display)"/>
+ <g stroke="url(#ticks)" stroke-width="4" stroke-linecap="round">
+  <path d="M104 174v17 M132 179v12 M160 172v19 M188 179v12 M216 171v20 M244 180v11 M272 170v21 M300 180v11 M328 171v20 M356 180v11 M384 173v18 M411 179v12"/>
+ </g>
+ <rect x="254.5" y="111" width="5" height="100" rx="1" fill="#c92b20"/>
+ <!-- Speaker grille: rounded, taller capsule, aligned with knob top and bottom -->
+ <g fill="url(#hole)" stroke="#ededed" stroke-width=".3" stroke-opacity=".5">
+  <circle cx="126.2" cy="269.0" r="4.05"/>
+  <circle cx="141.3" cy="269.0" r="4.05"/>
+  <circle cx="156.4" cy="269.0" r="4.05"/>
+  <circle cx="171.5" cy="269.0" r="4.05"/>
+  <circle cx="186.6" cy="269.0" r="4.05"/>
+  <circle cx="201.7" cy="269.0" r="4.05"/>
+  <circle cx="216.8" cy="269.0" r="4.05"/>
+  <circle cx="111.1" cy="286.0" r="4.05"/>
+  <circle cx="126.2" cy="286.0" r="4.05"/>
+  <circle cx="141.3" cy="286.0" r="4.05"/>
+  <circle cx="156.4" cy="286.0" r="4.05"/>
+  <circle cx="171.5" cy="286.0" r="4.05"/>
+  <circle cx="186.6" cy="286.0" r="4.05"/>
+  <circle cx="201.7" cy="286.0" r="4.05"/>
+  <circle cx="216.8" cy="286.0" r="4.05"/>
+  <circle cx="231.9" cy="286.0" r="4.05"/>
+  <circle cx="96.0" cy="303.0" r="4.05"/>
+  <circle cx="111.1" cy="303.0" r="4.05"/>
+  <circle cx="126.2" cy="303.0" r="4.05"/>
+  <circle cx="141.3" cy="303.0" r="4.05"/>
+  <circle cx="156.4" cy="303.0" r="4.05"/>
+  <circle cx="171.5" cy="303.0" r="4.05"/>
+  <circle cx="186.6" cy="303.0" r="4.05"/>
+  <circle cx="201.7" cy="303.0" r="4.05"/>
+  <circle cx="216.8" cy="303.0" r="4.05"/>
+  <circle cx="231.9" cy="303.0" r="4.05"/>
+  <circle cx="247.0" cy="303.0" r="4.05"/>
+  <circle cx="96.0" cy="320.0" r="4.05"/>
+  <circle cx="111.1" cy="320.0" r="4.05"/>
+  <circle cx="126.2" cy="320.0" r="4.05"/>
+  <circle cx="141.3" cy="320.0" r="4.05"/>
+  <circle cx="156.4" cy="320.0" r="4.05"/>
+  <circle cx="171.5" cy="320.0" r="4.05"/>
+  <circle cx="186.6" cy="320.0" r="4.05"/>
+  <circle cx="201.7" cy="320.0" r="4.05"/>
+  <circle cx="216.8" cy="320.0" r="4.05"/>
+  <circle cx="231.9" cy="320.0" r="4.05"/>
+  <circle cx="247.0" cy="320.0" r="4.05"/>
+  <circle cx="96.0" cy="337.0" r="4.05"/>
+  <circle cx="111.1" cy="337.0" r="4.05"/>
+  <circle cx="126.2" cy="337.0" r="4.05"/>
+  <circle cx="141.3" cy="337.0" r="4.05"/>
+  <circle cx="156.4" cy="337.0" r="4.05"/>
+  <circle cx="171.5" cy="337.0" r="4.05"/>
+  <circle cx="186.6" cy="337.0" r="4.05"/>
+  <circle cx="201.7" cy="337.0" r="4.05"/>
+  <circle cx="216.8" cy="337.0" r="4.05"/>
+  <circle cx="231.9" cy="337.0" r="4.05"/>
+  <circle cx="247.0" cy="337.0" r="4.05"/>
+  <circle cx="96.0" cy="354.0" r="4.05"/>
+  <circle cx="111.1" cy="354.0" r="4.05"/>
+  <circle cx="126.2" cy="354.0" r="4.05"/>
+  <circle cx="141.3" cy="354.0" r="4.05"/>
+  <circle cx="156.4" cy="354.0" r="4.05"/>
+  <circle cx="171.5" cy="354.0" r="4.05"/>
+  <circle cx="186.6" cy="354.0" r="4.05"/>
+  <circle cx="201.7" cy="354.0" r="4.05"/>
+  <circle cx="216.8" cy="354.0" r="4.05"/>
+  <circle cx="231.9" cy="354.0" r="4.05"/>
+  <circle cx="247.0" cy="354.0" r="4.05"/>
+  <circle cx="96.0" cy="371.0" r="4.05"/>
+  <circle cx="111.1" cy="371.0" r="4.05"/>
+  <circle cx="126.2" cy="371.0" r="4.05"/>
+  <circle cx="141.3" cy="371.0" r="4.05"/>
+  <circle cx="156.4" cy="371.0" r="4.05"/>
+  <circle cx="171.5" cy="371.0" r="4.05"/>
+  <circle cx="186.6" cy="371.0" r="4.05"/>
+  <circle cx="201.7" cy="371.0" r="4.05"/>
+  <circle cx="216.8" cy="371.0" r="4.05"/>
+  <circle cx="231.9" cy="371.0" r="4.05"/>
+  <circle cx="247.0" cy="371.0" r="4.05"/>
+  <circle cx="111.1" cy="388.0" r="4.05"/>
+  <circle cx="126.2" cy="388.0" r="4.05"/>
+  <circle cx="141.3" cy="388.0" r="4.05"/>
+  <circle cx="156.4" cy="388.0" r="4.05"/>
+  <circle cx="171.5" cy="388.0" r="4.05"/>
+  <circle cx="186.6" cy="388.0" r="4.05"/>
+  <circle cx="201.7" cy="388.0" r="4.05"/>
+  <circle cx="216.8" cy="388.0" r="4.05"/>
+  <circle cx="231.9" cy="388.0" r="4.05"/>
+  <circle cx="126.2" cy="405.0" r="4.05"/>
+  <circle cx="141.3" cy="405.0" r="4.05"/>
+  <circle cx="156.4" cy="405.0" r="4.05"/>
+  <circle cx="171.5" cy="405.0" r="4.05"/>
+  <circle cx="186.6" cy="405.0" r="4.05"/>
+  <circle cx="201.7" cy="405.0" r="4.05"/>
+  <circle cx="216.8" cy="405.0" r="4.05"/>
+ </g>
+ <!-- silver tuning knob, inset for balanced margins -->
+ <g transform="translate(-17 0)">
+ <circle cx="373" cy="343" r="75" fill="#030303" opacity=".64" filter="url(#knobShadow)"/>
+ <circle cx="372" cy="339" r="74" fill="#151515"/>
+ <circle cx="372" cy="337" r="72" fill="url(#knobRim)"/>
+ <circle cx="372" cy="335" r="66" fill="#353535"/>
+ <circle cx="372" cy="333" r="63" fill="url(#knob)"/>
+ <!-- rotary angle indicator -->
+ <rect x="388.5" y="291" width="10" height="32" rx="5" transform="rotate(42 393.5 307)" fill="#c92b20"/>
+ </g>
+</svg>

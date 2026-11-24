@@ -56,7 +56,7 @@ final class NowPlaying {
 
     private func refresh() {
         guard let dial else { return }
-        let active = dial.playback != .stopped && dial.source != nil
+        let active = dial.playback != .stopped && dial.source != nil && dial.source?.isSelfRadio != true && !dial.waitingForExternalAudio
         let canSeek = active && dial.source?.isRadio == false && dial.length.isFinite && dial.length > 0
         commands.playCommand.isEnabled = active
         commands.pauseCommand.isEnabled = active

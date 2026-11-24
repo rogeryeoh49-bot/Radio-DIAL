@@ -18,6 +18,8 @@
     <key>SUEnableAutomaticChecks</key><true/>
     <key>SUAutomaticallyUpdate</key><false/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSAudioCaptureUsageDescription</key><string>Self Radio detects sound from other apps on your current output device. Audio samples are measured locally and immediately discarded, never recorded or sent anywhere. Microphone input is not used.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Self Radio can resume or pause playback and read the current song and album artwork in Music and Spotify.</string>
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict>
 </plist>

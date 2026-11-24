@@ -107,7 +107,7 @@ struct RadioReceiver<Country: View, Tools: View>: View {
                 Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: 78)
                 VStack(alignment: .leading, spacing: 7) {
                     label("NOW TUNED", illuminated: true)
-                    Text(displayedStation?.callsign ?? "—")
+                    Text(dial.source?.isSelfRadio == true ? "SELF RADIO" : displayedStation?.callsign ?? "—")
                         .font(.system(size: 23, weight: .semibold)).lineLimit(2)
                         .foregroundStyle(RadioReceiverStyle.dialText)
                     Text(displaySubtitle)
@@ -143,6 +143,7 @@ struct RadioReceiver<Country: View, Tools: View>: View {
     }
 
     private var displaySubtitle: String {
+        if dial.source?.isSelfRadio == true { return [dial.track, dial.selfRadio.displayStatus].filter { !$0.isEmpty }.joined(separator: " · ") }
         if directory.loading && directory.stations.isEmpty { return "Loading FCC stations…" }
         if let error = directory.error, directory.stations.isEmpty { return error }
         if !dial.track.isEmpty && dial.playback != .stopped { return dial.track }

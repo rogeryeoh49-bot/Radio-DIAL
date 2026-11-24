@@ -159,6 +159,11 @@ final class StreamAudio {
         capture.onSaved = { [weak self] in self?.onSaved($0) }
     }
 
+    func prepareSystemAudioMonitoring() throws {
+        // Register our silent output process so Core Audio can exclude it from Self Radio.
+        if !engine.isRunning { try engine.start() }
+    }
+
     func play(_ source: Source, seek: Double = 0, profile: String = "Balanced", proxy: String = "", tuningEffect: Bool = false) throws {
         halt()
         guard let executable = AudioTools.ffmpeg else { throw DialError.missingDecoder }

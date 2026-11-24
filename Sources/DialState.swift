@@ -24,9 +24,15 @@ struct Preferences: Codable {
     var proxy = ""
     var podcastCountry = "US"
     // Optional for compatibility with settings saved by earlier releases.
+    var gettingStartedCompleted: Bool?
     var defaultRadioCountry: String?
     var viEnabled: Bool?
+    var selfRadioEnabled: Bool?
+    var selfRadioMetadata: Bool?
+    var selfRadioMusicApp: SelfRadioMusicApp?
     var viToggleMode: Bool?
+    var viBackgroundStrength: Double?
+    var viBackgroundDarkness: Double?
     var viImmediatePlayback: Bool?
     var viShortcut: VIShortcut?
     var shortcuts: [String: VIShortcut]?
@@ -45,9 +51,28 @@ struct Preferences: Codable {
 final class DialState: ObservableObject {
     nonisolated static let storage = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Radio Dial")
     private let settingsURL: URL
+    private let hadPreferencesAtLaunch: Bool
+    var shouldShowGettingStarted: Bool {
+        if let completed = prefs.gettingStartedCompleted { return !completed }
+        return !hadPreferencesAtLaunch
+    }
     let audio = StreamAudio()
     let meter = MeterState()
     let links = ListeningLinks()
+    let selfRadio = SelfRadioState()
+    private var selfRadioHandoff: Task<Void, Never>?
+    private var selfRadioPlaybackTask: Task<Void, Never>?
+    private var handingOffSelfRadio = false
+    var waitingForExternalAudio: Bool { handingOffSelfRadio }
+    var carouselStations: [Source] {
+        let favorites = prefs.favorites
+        let currentOutsideDirectory = source.flatMap { current in
+            stations.contains(where: { $0.id == current.id }) ? nil : current
+        }
+        let ordered = [Source.selfRadio] + favorites + (currentOutsideDirectory.map { [$0] } ?? []) + stations
+        var seen = Set<String>()
+        return ordered.filter { $0.isStation && seen.insert($0.id).inserted }
+    }
 
     @Published var prefs: Preferences { didSet { persist() } }
     @Published var source: Source?
@@ -83,12 +108,13 @@ final class DialState: ObservableObject {
     @Published var streamLatency: Double?
     @Published var mini = false
     @Published var pane: Pane?
+    @Published var gettingStartedStep: GettingStartedStep?
     @Published var section = Section.radio
 
     enum Playback { case stopped, connecting, playing, paused }
     enum Section: String, CaseIterable { case radio = "Radio", podcasts = "Podcasts", favorites = "Favorites", history = "History", recordings = "Recordings" }
     enum Pane: String, Identifiable {
-        case capture, scheduled, alarms, sleep, lyrics, info, settings, theme, playlist, presets, about, stream, custom
+        case capture, scheduled, alarms, sleep, lyrics, info, theme, playlist, presets, about, stream, custom
         var id: String { rawValue }
     }
 
@@ -122,6 +148,7 @@ final class DialState: ObservableObject {
 
     init(storage: URL = DialState.storage) {
         settingsURL = storage.appendingPathComponent("settings.json")
+        hadPreferencesAtLaunch = FileManager.default.fileExists(atPath: settingsURL.path)
         var saved = (try? Data(contentsOf: settingsURL)).flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
         saved.visualizer = Scope.currentMode(saved.visualizer)
         saved.theme = DialPalette.currentTheme(saved.theme)
@@ -129,7 +156,7 @@ final class DialState: ObservableObject {
         if saved.viNextKey?.keyCode == 50, saved.viNextKey?.label == "·" { saved.viNextKey?.label = "`" }
         prefs = saved
         source = prefs.last
-        art = prefs.last?.artwork
+        art = prefs.last?.stationArtwork
         audio.setEQ(prefs.eq)
         audio.setEQEnabled(isEQEnabled)
         applyVolume()
@@ -168,11 +195,13 @@ final class DialState: ObservableObject {
         // AppKit switches run loop modes while tracking a menu.
         RunLoop.main.add(meterTimer, forMode: .common)
         meterTick = meterTimer
+        selfRadio.onChange = { [weak self] in self?.refreshSelfRadio() }
     }
 
     func bootstrap() {
         guard !loaded else { return }
         loaded = true
+        configureSelfRadio()
         searchStations(name: "", country: prefs.defaultRadioCountry ?? "", tag: "", min: 0, sort: "clickcount")
         Task {
             if let stats: Catalog.Stats = try? await Catalog.radio("/json/stats") { stationCount = stats.stations }
@@ -202,6 +231,34 @@ final class DialState: ObservableObject {
         } catch {
             status = "Couldn’t save preferences: \(error.localizedDescription)"
         }
+    }
+
+    func configureSelfRadio() {
+        if prefs.selfRadioEnabled == true { try? audio.prepareSystemAudioMonitoring() }
+        selfRadio.configure(enabled: prefs.selfRadioEnabled ?? false, metadata: prefs.selfRadioMetadata ?? false,
+                            defaultPlayer: prefs.selfRadioMusicApp ?? .music)
+    }
+
+    private func refreshSelfRadio() {
+        objectWillChange.send()
+        // External sound takes priority; the user's explicit station request performs the reverse handoff.
+        if selfRadio.active, !handingOffSelfRadio, source?.isSelfRadio != true {
+            stop()
+            source = .selfRadio
+        }
+        guard !handingOffSelfRadio else { return }
+        guard source?.isSelfRadio == true else { return }
+        let nextTrack = selfRadio.displayDetail
+        let nextArt = selfRadio.artwork ?? Source.selfRadio.artwork
+        let nextPlayback: Playback = selfRadio.active ? .playing : .stopped
+        if track != nextTrack { track = nextTrack }
+        if art != nextArt { art = nextArt }
+        if appleMusicURL != nil { appleMusicURL = nil }
+        if matchedSong != nil { matchedSong = nil }
+        if playback != nextPlayback { playback = nextPlayback }
+        if elapsed != 0 { elapsed = 0 }
+        if length != 0 { length = 0 }
+        if status != selfRadio.displayStatus { status = selfRadio.displayStatus }
     }
 
     func searchStations(name: String, country: String, tag: String, min: Int, sort: String, append: Bool = false) {
@@ -289,7 +346,43 @@ final class DialState: ObservableObject {
         play(item, tuningEffect: switchingStations && tuningEffect)
     }
 
-    func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true, remainPaused: Bool = false, tuningEffect: Bool = false) {
+    func play(_ item: Source, position: Double = 0, retry: Bool = false, log: Bool = true, remainPaused: Bool = false, tuningEffect: Bool = false, externalHandoffComplete: Bool = false) {
+        if item.isSelfRadio {
+            if source?.isSelfRadio == true, selfRadio.active { return }
+            stop()
+            source = .selfRadio
+            refreshSelfRadio()
+            selfRadioPlaybackTask = Task { [weak self] in
+                guard let self else { return }
+                let message = await selfRadio.resumeExternalAudio(defaultPlayer: prefs.selfRadioMusicApp ?? .music)
+                if !Task.isCancelled, source?.isSelfRadio == true, let message { status = message }
+            }
+            return
+        }
+        if prefs.selfRadioEnabled == true, !retry, !externalHandoffComplete {
+            selfRadioHandoff?.cancel()
+            stop()
+            handingOffSelfRadio = true
+            source = item
+            track = ""; art = item.stationArtwork; appleMusicURL = nil; matchedSong = nil
+            playback = .connecting
+            status = "Pausing external audio…"
+            selfRadioHandoff = Task { [weak self] in
+                guard let self else { return }
+                let error = await selfRadio.pauseExternalAudio()
+                guard !Task.isCancelled else { return }
+                handingOffSelfRadio = false
+                selfRadioHandoff = nil
+                if let error {
+                    source = .selfRadio
+                    refreshSelfRadio()
+                    status = error
+                } else {
+                    play(item, position: position, log: log, remainPaused: remainPaused, tuningEffect: tuningEffect, externalHandoffComplete: true)
+                }
+            }
+            return
+        }
         reconnectTask?.cancel()
         pausedWhileConnecting = false
         if !retry {
@@ -309,7 +402,7 @@ final class DialState: ObservableObject {
         matchedSong = nil
         lyrics = nil
         lyricStatus = ""
-        art = item.artwork
+        art = item.stationArtwork
         pauseAfterSeek = remainPaused
         offset = position
         elapsed = position
@@ -334,6 +427,22 @@ final class DialState: ObservableObject {
     }
 
     func togglePlayback() {
+        if handingOffSelfRadio {
+            stop(message: "Paused")
+            if selfRadio.active { source = .selfRadio; refreshSelfRadio() }
+            return
+        }
+        if source?.isSelfRadio == true {
+            selfRadioPlaybackTask?.cancel()
+            let pause = selfRadio.active
+            selfRadioPlaybackTask = Task { [weak self] in
+                guard let self else { return }
+                let message = pause ? await selfRadio.pauseExternalAudio()
+                    : await selfRadio.resumeExternalAudio(defaultPlayer: prefs.selfRadioMusicApp ?? .music)
+                if !Task.isCancelled, source?.isSelfRadio == true, let message { status = message }
+            }
+            return
+        }
         switch playback {
         case .playing:
             audio.pause(true)
@@ -341,6 +450,10 @@ final class DialState: ObservableObject {
             meter.reset()
             status = "Paused"
         case .paused:
+            if prefs.selfRadioEnabled == true, let source {
+                play(source, position: source.isRadio ? 0 : elapsed, log: false)
+                return
+            }
             if pausedWhileConnecting, let source {
                 pausedWhileConnecting = false
                 play(source, log: false)
@@ -366,6 +479,9 @@ final class DialState: ObservableObject {
     }
 
     func stop(message: String = "Stopped") {
+        selfRadioPlaybackTask?.cancel(); selfRadioPlaybackTask = nil
+        selfRadioHandoff?.cancel(); selfRadioHandoff = nil
+        handingOffSelfRadio = false
         pausedWhileConnecting = false
         reconnectTask?.cancel()
         recognitionTask?.cancel()
@@ -506,7 +622,7 @@ final class DialState: ObservableObject {
     }
 
     func startRecording(scheduled: Bool = false) {
-        guard let source, !recording, scheduled || playback == .playing else { return }
+        guard let source, !source.isSelfRadio, !recording, scheduled || playback == .playing else { return }
         do {
             try audio.record(source, options: prefs.capture, title: track)
             recording = true
@@ -588,7 +704,7 @@ final class DialState: ObservableObject {
         track = cleaned
         appleMusicURL = nil
         matchedSong = nil
-        art = artwork ?? source?.artwork
+        art = artwork ?? source?.stationArtwork
         trackStart = elapsed
         lyrics = nil
         lyricStatus = ""
@@ -607,7 +723,7 @@ final class DialState: ObservableObject {
             guard !Task.isCancelled, track == cleaned else { return }
             appleMusicURL = match?.appleMusicURL
             matchedSong = match
-            if art == source?.artwork, let artwork = match?.artwork { art = artwork }
+            if art == source?.stationArtwork, let artwork = match?.artwork { art = artwork }
         }
         if pane == .lyrics { findLyrics(cleaned) }
     }
@@ -629,7 +745,7 @@ final class DialState: ObservableObject {
     }
 
     func identify(automatic: Bool = false) {
-        guard !finding else { return }
+        guard source?.isSelfRadio != true, !finding else { return }
         let file: URL
         do { file = try audio.recognitionSample() }
         catch { lyricStatus = "Play at least a few seconds of audio first."; return }
@@ -686,7 +802,7 @@ final class DialState: ObservableObject {
     }
 
     private func update() {
-        if playback == .playing || playback == .paused {
+        if source?.isSelfRadio != true, playback == .playing || playback == .paused {
             elapsed = currentPlaybackTime
             if audio.duration > 0 { length = audio.duration }
         }
@@ -720,7 +836,7 @@ final class DialState: ObservableObject {
             nextRecognition = now.addingTimeInterval(60)
             if trackOrigin != .station { identify(automatic: true) }
         }
-        if playback == .playing { links.tick(prefs: prefs) }
+        if source?.isSelfRadio != true, playback == .playing { links.tick(prefs: prefs) }
     }
 
     func importList() {

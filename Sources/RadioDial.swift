@@ -12,15 +12,28 @@ enum RadioDialApp {
             }
         }
         let app = NSApplication.shared
+        let lightIcon = Bundle.main.url(forResource: "RadioDial", withExtension: "icns").flatMap { NSImage(contentsOf: $0) }
+        let darkIcon = Bundle.main.url(forResource: "RadioDial-Dark", withExtension: "icns").flatMap { NSImage(contentsOf: $0) }
+        let iconAppearance = app.observe(\.effectiveAppearance, options: [.initial, .new]) { _, change in
+            Task { @MainActor in
+                let appearance = change.newValue ?? app.effectiveAppearance
+                let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                if let icon = dark ? darkIcon : lightIcon { app.applicationIconImage = icon }
+            }
+        }
         let delegate = DialDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.regular)
-        withExtendedLifetime(delegate) { app.run() }
+        withExtendedLifetime((delegate, iconAppearance)) { app.run() }
     }
 }
 
 private struct DialWindow: View {
     @ObservedObject var dial: DialState
+    let openSettings: () -> Void
+    let advanceTutorial: () -> Void
+    let endTutorial: () -> Void
+    let panelDismissed: () -> Void
     @StateObject private var coverFlowArtwork = CoverFlowArtwork()
     @State private var stationQuery = ""
     @State private var podcastQuery = ""
@@ -66,10 +79,17 @@ private struct DialWindow: View {
                 RadioReceiver(dial: dial, country: receiverCountry, tools: receiverTools)
             } else if dial.prefs.theme == "Cover Flow" && !dial.mini {
                 CoverFlow(dial: dial, artwork: coverFlowArtwork, country: coverFlowCountry, library: stationLibraryButton, options: optionsMenu,
-                          countryFiltered: !countrySelection.code.isEmpty, keyboardEnabled: !showReceiverLibrary && dial.pane == nil,
+                          keyboardEnabled: !showReceiverLibrary && dial.pane == nil,
                           supportsHDR: coverFlowSupportsHDR)
             } else {
                 standardLayout
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if dial.gettingStartedStep == .coverFlow {
+                GettingStartedHint(step: .coverFlow, text: "Swipe or use ← and → to browse covers. Press Space to play the centered station.",
+                                   advance: advanceTutorial, skip: endTutorial)
+                    .padding(12)
             }
         }
         .frame(minWidth: dial.mini ? 480 : 840, minHeight: dial.mini ? 250 : 620)
@@ -83,8 +103,8 @@ private struct DialWindow: View {
         .foregroundStyle(palette.text)
         .tint(palette.accent)
         .preferredColorScheme(palette.light ? .light : .dark)
-        .sheet(item: $dial.pane) { pane in
-            PanelBody(dial: dial, pane: pane)
+        .sheet(item: $dial.pane, onDismiss: panelDismissed) { pane in
+            PanelBody(dial: dial, pane: pane, advanceTutorial: advanceTutorial, endTutorial: endTutorial)
                 .padding(24)
                 .frame(width: pane == .lyrics ? 620 : 540)
                 .background {
@@ -95,6 +115,13 @@ private struct DialWindow: View {
                 .foregroundStyle(pane == .theme ? palette.text : .primary)
                 .tint(palette.accent)
                 .preferredColorScheme(palette.light ? .light : .dark)
+        }
+        .onChange(of: dial.gettingStartedStep) { old, step in
+            if step == .stations {
+                showReceiverLibrary = dial.prefs.theme == "Cover Flow" || dial.prefs.theme == RadioReceiverStyle.name
+            } else if old == .stations {
+                showReceiverLibrary = false
+            }
         }
         .onChange(of: dial.mini) { _, mini in
             guard let window else { return }
@@ -185,6 +212,7 @@ private struct DialWindow: View {
     private var stationLibraryButton: some View {
         Button { showReceiverLibrary.toggle() } label: { Image(systemName: "list.bullet") }
             .help("Station library").accessibilityLabel("Station library")
+            .gettingStartedHighlight(dial.gettingStartedStep == .stations && !showReceiverLibrary)
             .popover(isPresented: $showReceiverLibrary, arrowEdge: .bottom) {
                 library.padding(14).frame(width: 820, height: 390)
                     .foregroundStyle(palette.text)
@@ -245,7 +273,7 @@ private struct DialWindow: View {
             Button("Equalizer Presets…") { dial.pane = .presets }
             Button("Stream Monitor…") { dial.pane = .stream }
             Button("Themes…") { dial.pane = .theme }
-            Button("Settings…") { dial.pane = .settings }
+            Button("Settings…", action: openSettings)
             Divider()
             Button("About Radio Dial") { dial.pane = .about }
         } label: {
@@ -433,6 +461,11 @@ private struct DialWindow: View {
 
     private var library: some View {
         VStack(spacing: 0) {
+            if dial.gettingStartedStep == .stations {
+                GettingStartedHint(step: .stations, text: "Search for a station by name or choose a country.",
+                                   advance: advanceTutorial, skip: endTutorial)
+                    .padding(.bottom, 8)
+            }
             HStack(spacing: 7) {
                 ForEach(DialState.Section.allCases, id: \.self) { item in
                     Button { dial.section = item } label: {
@@ -491,10 +524,12 @@ private struct DialWindow: View {
                     Button("Highest Bitrate") { sort = "bitrate" }
                 } label: { Image(systemName: "arrow.up.arrow.down") }.fixedSize().help("Sort Stations")
                 TextField("Search stations…", text: $stationQuery).onSubmit { search() }
+                    .gettingStartedHighlight(dial.gettingStartedStep == .stations)
                 Button("Search") { search() }.buttonStyle(.borderedProminent)
             }
             if !dial.radioError.isEmpty { Text(dial.radioError).font(.caption).foregroundStyle(.orange) }
-            table(dial.stations, empty: dial.busy ? "Loading stations…" : "No stations found.", more: dial.more) {
+            table(dial.stations, empty: dial.busy ? "Loading stations…" : "No stations found.", more: dial.more,
+                  pinned: .selfRadio) {
                 dial.open($0)
             }
         }
@@ -585,7 +620,7 @@ private struct DialWindow: View {
                 Spacer()
                 Button("Import / Export") { dial.pane = .playlist }
             }
-            table(dial.prefs.favorites.filter { activeFavoriteType == 0 ? $0.isRadio : !$0.isRadio }, empty: "No favorites here yet.") { dial.open($0) }
+            table(dial.prefs.favorites.filter { activeFavoriteType == 0 ? $0.isStation : !$0.isStation }, empty: "No favorites here yet.") { dial.open($0) }
         }
     }
 
@@ -628,15 +663,23 @@ private struct DialWindow: View {
         }
     }
 
-    private func table(_ items: [Source], empty: String, more: Bool = false, action: @escaping (Source) -> Void) -> some View {
-        ScrollView {
-            if items.isEmpty { emptyState(empty) }
-            LazyVStack(spacing: 1) {
-                ForEach(items) { item in
-                    row(item, hint: item.subtitle.nonempty ?? item.tags) { action(item) }
-                        .contextMenu { rowMenu(item) }
+    private func table(_ items: [Source], empty: String, more: Bool = false, pinned: Source? = nil,
+                       action: @escaping (Source) -> Void) -> some View {
+        VStack(spacing: 0) {
+            if let pinned {
+                row(pinned, hint: pinned.isSelfRadio ? dial.selfRadio.displayDetail : "") { action(pinned) }
+                    .contextMenu { rowMenu(pinned) }
+                Divider()
+            }
+            ScrollView {
+                if items.isEmpty { emptyState(empty) }
+                LazyVStack(spacing: 1) {
+                    ForEach(items) { item in
+                        row(item, hint: item.subtitle.nonempty ?? item.tags) { action(item) }
+                            .contextMenu { rowMenu(item) }
+                    }
+                    if more { Button(dial.busy ? "Loading…" : "Load More") { search(append: true) }.disabled(dial.busy).padding(8) }
                 }
-                if more { Button(dial.busy ? "Loading…" : "Load More") { search(append: true) }.disabled(dial.busy).padding(8) }
             }
         }
         .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
@@ -651,9 +694,10 @@ private struct DialWindow: View {
     private func row(_ item: Source, hint: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 9) {
-                Image(systemName: dial.source?.id == item.id && dial.playback == .playing ? "waveform" : item.feed != nil ? "mic" : item.isRadio ? "radio" : "play.circle")
+                Image(systemName: dial.source?.id == item.id && dial.playback == .playing ? "waveform" : item.isSelfRadio ? "speaker.wave.2" : item.feed != nil ? "mic" : item.isRadio ? "radio" : "play.circle")
                     .frame(width: 19).foregroundStyle(dial.source?.id == item.id ? palette.signal : palette.accent)
                 Text(item.title).font(.system(size: 13, weight: .medium, design: .serif)).lineLimit(1)
+                if item.isSelfRadio { Text(dial.selfRadio.displayStatus).font(.caption).foregroundStyle(palette.secondary) }
                 if item.bitrate > 0 {
                     Text("\(item.bitrate) kbps").font(.system(size: 10, weight: .medium, design: .monospaced))
                         .padding(.horizontal, 5).padding(.vertical, 2).background(palette.accent.opacity(0.12), in: Capsule())
@@ -778,12 +822,14 @@ func timeLabel(_ value: Double) -> String {
 }
 
 @MainActor
-private final class DialDelegate: NSObject, NSApplicationDelegate {
+private final class DialDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     weak var dial: DialState?
     private var keyMonitor: Any?
     private var player: DialState?
     private var nowPlaying: NowPlaying?
     private var window: NSWindow?
+    private var settingsWindow: NSWindow?
+    private var gettingStartedWindow: NSWindow?
     private var statusItem: NSStatusItem?
     private var preferenceObserver: AnyCancellable?
     private let updates = UpdateController.shared
@@ -802,7 +848,12 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("radio-dial-main")
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 840, height: 620)
-        window.contentView = NSHostingView(rootView: DialWindow(dial: model))
+        window.contentView = NSHostingView(rootView: DialWindow(
+            dial: model,
+            openSettings: { [weak self] in self?.showSettings() },
+            advanceTutorial: { [weak self] in self?.advanceTutorial() },
+            endTutorial: { [weak self] in self?.endTutorial() },
+            panelDismissed: { [weak self] in self?.tutorialPanelDismissed() }))
         window.center()
         self.window = window
         installMenus()
@@ -814,18 +865,30 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         model.bootstrap()
         updates.start()
         VIRadioController.shared.configure(model)
+        VIRadioController.shared.onTutorialShortcut = { [weak self] in self?.showVIRadio() }
         viPreferences = model.$prefs.sink { [weak self] _ in
             DispatchQueue.main.async {
                 VIRadioController.shared.configure(model)
+                model.configureSelfRadio()
                 self?.updatePlaybackShortcuts()
             }
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard !VIRadioController.shared.visible, !VIShortcutRecorder.isRecording, let dial = self?.dial, event.window?.attachedSheet == nil else { return event }
+            guard let self, !VIRadioController.shared.visible, !VIShortcutRecorder.isRecording,
+                  let dial = self.dial, event.window?.attachedSheet == nil else { return event }
+            if let eventWindow = event.window,
+               eventWindow === self.settingsWindow || eventWindow === self.gettingStartedWindow { return event }
+            if dial.gettingStartedStep == .viRadio, dial.prefs.viEnabled != false {
+                let shortcut = dial.prefs.viShortcut ?? VIShortcut()
+                if shortcut.keyCode == UInt32(event.keyCode), shortcut.modifiers == VIShortcut.modifiers(from: event) {
+                    if !event.isARepeat { self.showVIRadio() }
+                    return nil
+                }
+            }
             let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
             if event.keyCode == 3, event.modifierFlags.contains(.function), modifiers.isEmpty,
-               event.window === self?.window {
-                self?.window?.toggleFullScreen(nil)
+               event.window === self.window {
+                self.window?.toggleFullScreen(nil)
                 return nil
             }
             if let action = AppShortcutAction.allCases.first(where: {
@@ -847,6 +910,10 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             return event
+        }
+        if model.shouldShowGettingStarted {
+            if model.prefs.gettingStartedCompleted == nil { model.prefs.gettingStartedCompleted = false }
+            showGettingStarted()
         }
     }
 
@@ -909,8 +976,14 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
         root.addItem(windowItem)
+        let helpItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+        helpMenu.addItem(item("Getting Started…", #selector(showGettingStarted)))
+        helpItem.submenu = helpMenu
+        root.addItem(helpItem)
         NSApp.mainMenu = root
         NSApp.windowsMenu = windowMenu
+        NSApp.helpMenu = helpMenu
         updatePlaybackShortcuts()
     }
 
@@ -954,11 +1027,134 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    @objc private func showVIRadio() { VIRadioController.shared.show() }
+    @objc private func showVIRadio() {
+        if dial?.gettingStartedStep == .viRadio {
+            if VIRadioController.shared.visible { VIRadioController.shared.beginTutorialPractice() }
+            else { showVIRadioPractice() }
+        } else {
+            VIRadioController.shared.show()
+        }
+    }
+
+    private func showVIRadioPractice(waitForShortcut: Bool = false) {
+        guard !VIRadioController.shared.visible else { return }
+        VIRadioController.shared.show(waitForShortcut: waitForShortcut, guideCompletion: { [weak self] in
+            guard self?.dial?.gettingStartedStep == .viRadio else { return }
+            self?.advanceTutorial()
+        })
+    }
     @objc private func showPlayer() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func showAbout() { showPlayer(); dial?.pane = .about }
     @objc private func checkForUpdates() { showPlayer(); updates.check() }
-    @objc private func showSettings() { showPlayer(); dial?.pane = .settings }
+
+    @objc private func showGettingStarted() {
+        guard let dial, dial.gettingStartedStep == nil else { return }
+        if gettingStartedWindow == nil {
+            let size = NSSize(width: 475, height: 365)
+            let tutorial = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                                    styleMask: [.titled, .closable],
+                                    backing: .buffered, defer: false)
+            tutorial.title = "Getting Started"
+            tutorial.identifier = NSUserInterfaceItemIdentifier("radio-dial-getting-started")
+            tutorial.appearance = NSAppearance(named: .darkAqua)
+            tutorial.isReleasedWhenClosed = false
+            tutorial.delegate = self
+            tutorial.contentView = NSHostingView(rootView: GettingStarted(
+                selfRadio: dial.selfRadio,
+                musicApp: dial.prefs.selfRadioMusicApp ?? .music,
+                prepareAudio: { [weak dial] in try? dial?.audio.prepareSystemAudioMonitoring() },
+                start: { [weak self] in self?.startTutorial() },
+                skip: { [weak self] in self?.gettingStartedWindow?.close() }
+            ).frame(width: size.width, height: size.height))
+            tutorial.center()
+            gettingStartedWindow = tutorial
+        }
+        gettingStartedWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func startTutorial() {
+        guard let dial else { return }
+        dial.pane = nil
+        dial.mini = false
+        dial.section = .radio
+        dial.gettingStartedStep = .stations
+        gettingStartedWindow?.close()
+        showPlayer()
+    }
+
+    private func advanceTutorial() {
+        guard let dial else { return }
+        switch dial.gettingStartedStep {
+        case .stations:
+            dial.gettingStartedStep = .themes
+            dial.pane = .theme
+        case .themes:
+            dial.gettingStartedStep = dial.prefs.theme == "Cover Flow" ? .coverFlow : .viRadio
+            dial.pane = nil
+        case .coverFlow:
+            dial.gettingStartedStep = .viRadio
+            showVIRadioPractice(waitForShortcut: true)
+        case .viRadio:
+            dial.gettingStartedStep = .selfRadio
+            showSettings()
+        case .selfRadio:
+            endTutorial()
+        case nil:
+            break
+        }
+    }
+
+    private func tutorialPanelDismissed() {
+        if dial?.gettingStartedStep == .themes { endTutorial() }
+        else if dial?.gettingStartedStep == .viRadio { showVIRadioPractice(waitForShortcut: true) }
+    }
+
+    private func endTutorial() {
+        guard let dial else { return }
+        let previousStep = dial.gettingStartedStep
+        dial.gettingStartedStep = nil
+        if previousStep == .themes, dial.pane == .theme { dial.pane = nil }
+        if dial.prefs.gettingStartedCompleted != true { dial.prefs.gettingStartedCompleted = true }
+    }
+
+    @objc private func showSettings() {
+        guard let dial else { return }
+        if settingsWindow == nil {
+            let screen = window?.screen ?? NSScreen.main
+            let height = min(680, (screen?.visibleFrame.height ?? 760) - 50)
+            let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: height),
+                                    styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                    backing: .buffered, defer: false)
+            settings.title = "Radio Dial Settings"
+            settings.identifier = NSUserInterfaceItemIdentifier("radio-dial-settings")
+            settings.isReleasedWhenClosed = false
+            settings.delegate = self
+            settings.contentView = NSHostingView(rootView: RadioDialSettings(
+                dial: dial,
+                startTutorial: { [weak self] in self?.showGettingStarted() },
+                finishTutorial: { [weak self] in self?.endTutorial() }))
+            settings.contentMinSize = NSSize(width: 520, height: 350)
+            settings.center()
+            settingsWindow = settings
+        }
+        settingsWindow?.deminiaturize(nil)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow else { return }
+        if closing === settingsWindow {
+            self.settingsWindow = nil
+            if dial?.gettingStartedStep == .selfRadio { endTutorial() }
+        }
+        if closing === gettingStartedWindow {
+            gettingStartedWindow = nil
+            if dial?.gettingStartedStep == nil { endTutorial() }
+        }
+    }
+
     @objc private func showStream() { showPlayer(); dial?.pane = .custom }
     @objc private func importPlaylist() { showPlayer(); dial?.importList() }
     @objc private func volumeUp() { dial?.setVolume((dial?.prefs.volume ?? 0) + 5) }
@@ -972,6 +1168,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let dial else { return .terminateNow }
         VIRadioController.shared.shutdown()
+        dial.selfRadio.shutdown()
         viPreferences?.cancel()
         dial.stop()
         nowPlaying?.tearDown()

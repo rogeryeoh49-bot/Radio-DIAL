@@ -9,12 +9,38 @@ private final class VIRadioPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private enum VIRadioGuideStep: Int {
+    case browse = 1, confirm, close
+
+    var title: String {
+        switch self {
+        case .browse: "Browse stations"
+        case .confirm: "Confirm a station"
+        case .close: "Close VI Radio"
+        }
+    }
+
+    var instruction: String {
+        switch self {
+        case .browse: "Press ← or →, scroll, or click a highlighted arrow."
+        case .confirm: "Press Space or Return, or click the station you want to play."
+        case .close: "Click Turn Off. In normal use, this also pauses playback."
+        }
+    }
+}
+
 @MainActor final class VIRadioController: ObservableObject {
     static let shared = VIRadioController()
     @Published var stations: [Source] = []
     @Published var index = 0
     @Published var position = 0
     @Published var hintsVisible = false
+    @Published var foregroundVisible = false
+    @Published fileprivate private(set) var guideStep: VIRadioGuideStep?
+    @Published fileprivate private(set) var awaitingGuideShortcut = false
+    private var guideCompletion: (() -> Void)?
+    var onTutorialShortcut: (() -> Void)?
+    private var isClosing = false
     private var hintTimer: Timer?
     private var capsState = false
     let artwork = CoverFlowArtwork()
@@ -41,6 +67,9 @@ private final class VIRadioPanel: NSPanel {
             }
         }
         warmArtwork()
+        (panel?.contentView as? VIRadioBackdrop)?.update(
+            strength: dial.prefs.viBackgroundStrength ?? VIRadioBackdrop.defaultStrength,
+            darkness: dial.prefs.viBackgroundDarkness ?? VIRadioBackdrop.defaultDarkness)
         let shortcut = dial.prefs.viShortcut ?? VIShortcut()
         let enabled = dial.prefs.viEnabled ?? true
         let signature = "\(enabled):\(shortcut.keyCode):\(shortcut.modifiers)"
@@ -51,7 +80,7 @@ private final class VIRadioPanel: NSPanel {
                 item.title = "Show GTA Radio Selector — " + shortcut.label
             }
         }
-        dismiss(commit: false)
+        dismiss(commit: false, animated: false)
         if let hotKey { UnregisterEventHotKey(hotKey); self.hotKey = nil }
         if handler == nil {
             var events = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
@@ -85,23 +114,30 @@ private final class VIRadioPanel: NSPanel {
     func restoreShortcut() { if let dial { configure(dial) } }
 
     private func invoke() {
-        if visible { dismiss(commit: false); return }
+        if dial?.gettingStartedStep == .viRadio, let onTutorialShortcut {
+            onTutorialShortcut()
+            return
+        }
+        if visible && !isClosing { dismiss(commit: false); return }
         show(holding: !(dial?.prefs.viToggleMode ?? false))
     }
 
-    func show(holding: Bool = false) {
+    func show(holding: Bool = false, waitForShortcut: Bool = false, guideCompletion: (() -> Void)? = nil) {
         guard let dial else { return }
+        if isClosing, let old = panel { finishClosing(old) }
         if visible { dismiss(commit: false); return }
-        var seen = Set<String>()
-        stations = (dial.prefs.favorites + (dial.source.map { [$0] } ?? []) + dial.stations)
-            .filter { $0.isRadio && seen.insert($0.id).inserted }
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
+        self.guideCompletion = guideCompletion
+        guideStep = guideCompletion == nil ? nil : .browse
+        awaitingGuideShortcut = guideCompletion != nil && waitForShortcut
+        foregroundVisible = false
+        stations = dial.carouselStations
         index = stations.firstIndex { $0.id == dial.source?.id } ?? 0
         position = index
         holdSession = holding
         warmArtwork()
         scrollAmount = 0
-        let mouse = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
         let window = VIRadioPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         window.title = "VI radio"
         window.identifier = NSUserInterfaceItemIdentifier("vi-radio-overlay")
@@ -114,12 +150,27 @@ private final class VIRadioPanel: NSPanel {
         window.isReleasedWhenClosed = false
         let hosting = NSHostingView(rootView: VIRadioView(controller: self, dial: dial, artwork: artwork))
         hosting.focusRingType = .none
-        window.contentView = hosting
+        window.contentView = VIRadioBackdrop(foreground: hosting, frame: NSRect(origin: .zero, size: screen.frame.size),
+            strength: dial.prefs.viBackgroundStrength ?? VIRadioBackdrop.defaultStrength,
+            darkness: dial.prefs.viBackgroundDarkness ?? VIRadioBackdrop.defaultDarkness)
+        window.alphaValue = 0
         panel = window
         capsState = NSEvent.modifierFlags.contains(.capsLock)
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, self.visible,
                   event.window === self.panel || (event.type == .flagsChanged && self.panel?.isKeyWindow == true) else { return event }
+            if self.isClosing { return nil }
+            if self.awaitingGuideShortcut {
+                if event.type == .keyDown {
+                    if event.keyCode == 53 { self.dismiss(commit: false) }
+                    let binding = self.dial?.prefs.viShortcut ?? VIShortcut()
+                    if self.dial?.prefs.viEnabled != false, self.matches(binding, event: event) {
+                        self.beginTutorialPractice()
+                    }
+                    return nil
+                }
+                return event
+            }
             self.activity()
             if event.type == .flagsChanged {
                 if event.keyCode == 57 {
@@ -159,6 +210,15 @@ private final class VIRadioPanel: NSPanel {
         }
         window.makeKeyAndOrderFront(nil)
         activity()
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.panel === window, !self.isClosing else { return }
+            self.foregroundVisible = true
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                window.animator().alphaValue = 1
+            }
+        }
     }
 
     private func matches(_ binding: VIShortcut, event: NSEvent) -> Bool {
@@ -170,10 +230,12 @@ private final class VIRadioPanel: NSPanel {
         return holdSession && (modifiers & ~invocation) == (binding.modifiers & ~invocation)
     }
     func activity() {
+        guard guideStep == nil else { return }
+        let idleDelay: TimeInterval = 5
         hintsVisible = false
-        if let hintTimer { hintTimer.fireDate = Date().addingTimeInterval(8) }
+        if let hintTimer { hintTimer.fireDate = Date().addingTimeInterval(idleDelay) }
         else {
-            hintTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+            hintTimer = Timer.scheduledTimer(withTimeInterval: idleDelay, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.hintTimer = nil
@@ -181,6 +243,9 @@ private final class VIRadioPanel: NSPanel {
                 }
             }
         }
+    }
+    func beginTutorialPractice() {
+        awaitingGuideShortcut = false
     }
     var keyHints: String {
         let previous = dial?.prefs.viPreviousKey ?? .previous
@@ -194,6 +259,10 @@ private final class VIRadioPanel: NSPanel {
         position += amount
         index = ((position % stations.count) + stations.count) % stations.count
         warmArtwork()
+        if let guideStep {
+            if guideStep == .browse, amount != 0 { self.guideStep = .confirm }
+            return
+        }
         if index != previousIndex {
             if dial?.prefs.viImmediatePlayback ?? true { playSelected() }
             dial?.audio.playSelectionTone()
@@ -209,46 +278,81 @@ private final class VIRadioPanel: NSPanel {
     }
     private func warmArtwork() {
         guard let dial else { return }
-        var seen = Set<String>()
-        let items = visible ? stations : (dial.prefs.favorites + (dial.source.map { [$0] } ?? []) + dial.stations)
-            .filter { $0.isRadio && seen.insert($0.id).inserted }
+        let items = visible ? stations : dial.carouselStations
         let center = visible ? index : (items.firstIndex { $0.id == dial.source?.id } ?? 0)
         guard !items.isEmpty else { return }
         // Warm the visible row and both off-screen edges first, including circular neighbors.
         var urls: [URL] = []
-        if let art = dial.art { urls.append(art) }
         for distance in 0...items.count / 2 {
             for offset in distance == 0 ? [0] : [-distance, distance] {
                 let neighbor = (center + offset + items.count) % items.count
-                if let url = items[neighbor].artwork { urls.append(url) }
+                if let url = items[neighbor].stationArtwork { urls.append(url) }
             }
         }
         var unique = Set<URL>()
         artwork.prefetch(urls.filter { unique.insert($0).inserted })
     }
     func click(_ value: Int) {
+        let step = guideStep
         choose(value)
+        if step == .browse { return }
         dismiss(commit: true)
     }
     func turnOff() {
-        if let dial, dial.playback == .playing || dial.playback == .connecting {
+        if guideStep == nil, let dial, dial.playback == .playing || dial.playback == .connecting {
             dial.togglePlayback()
         }
         dismiss(commit: false)
     }
 
-    func dismiss(commit: Bool) {
+    func dismiss(commit: Bool, animated: Bool = true) {
+        guard !isClosing else {
+            if !animated, let window = panel { finishClosing(window) }
+            return
+        }
+        if commit, let guideStep {
+            if guideStep == .confirm { self.guideStep = .close }
+            return
+        }
         let selected = stations.indices.contains(index) ? stations[index] : nil
         holdSession = false
         hintTimer?.invalidate()
         hintTimer = nil
         hintsVisible = false
-        if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
-        panel?.orderOut(nil)
-        panel?.contentView = nil
-        panel?.close()
-        panel = nil
+        foregroundVisible = false
+        if let window = panel {
+            isClosing = true
+            // Release mouse input immediately; keyboard events are swallowed only during the fade.
+            window.ignoresMouseEvents = true
+            if animated {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.22
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    window.animator().alphaValue = 0
+                } completionHandler: { [weak self, weak window] in
+                    Task { @MainActor in
+                        guard let self, let window, self.panel === window else { return }
+                        self.finishClosing(window)
+                    }
+                }
+            } else { finishClosing(window) }
+        }
         if commit, let selected { play(selected) }
+    }
+
+    private func finishClosing(_ window: NSPanel) {
+        guard panel === window else { return }
+        if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+        window.orderOut(nil)
+        window.contentView = nil
+        window.close()
+        panel = nil
+        isClosing = false
+        guideStep = nil
+        awaitingGuideShortcut = false
+        let onGuideClose = guideCompletion
+        guideCompletion = nil
+        onGuideClose?()
     }
     private func playSelected() {
         guard stations.indices.contains(index) else { return }
@@ -260,7 +364,8 @@ private final class VIRadioPanel: NSPanel {
         else if dial.playback == .paused || dial.playback == .stopped { dial.togglePlayback() }
     }
     func shutdown() {
-        dismiss(commit: false)
+        guideCompletion = nil
+        dismiss(commit: false, animated: false)
         if let hotKey { UnregisterEventHotKey(hotKey); self.hotKey = nil }
         if let handler { RemoveEventHandler(handler); self.handler = nil }
         configured = nil
@@ -275,6 +380,7 @@ private struct VIRadioView: View {
     @ObservedObject var dial: DialState
     @ObservedObject var artwork: CoverFlowArtwork
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let guideAccent = Color(rgb: 0xF5BD76)
     private struct Slot: Identifiable {
         let id: Int
         let offset: Int
@@ -295,27 +401,42 @@ private struct VIRadioView: View {
         GeometryReader { geometry in
             let size = min(140, max(42, (geometry.size.width - 360) / 5))
             ZStack(alignment: .top) {
-                Color.black.opacity(0.76).ignoresSafeArea()
+                Color.clear.ignoresSafeArea().contentShape(Rectangle())
                     .onTapGesture { controller.dismiss(commit: false) }
+                if controller.awaitingGuideShortcut {
+                    shortcutPrompt
+                        .opacity(controller.foregroundVisible ? 1 : 0)
+                } else {
                 VStack(spacing: 18) {
                     HStack(spacing: 13) {
                         HStack(spacing: 12) {
                         Text("VI RADIO").font(.custom("BarlowCondensed-SemiBold", size: 25))
+                            .viOutlined(width: viTitleOutlineWidth)
                             .fixedSize()
-                        Button { controller.move(-1) } label: { Image(systemName: "chevron.left").font(.system(size: 16, weight: .semibold)) }
+                        Button { controller.move(-1) } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .viOutlined(width: 0.85)
+                        }
                             .focusable(false).focusEffectDisabled()
                             .accessibilityLabel("Previous station")
+                            .overlay { guideHighlight(.browse) }
                         }.frame(width: 130, alignment: .trailing)
                         ZStack {
                             ForEach(slots) { slot in
                                     let offset = slot.offset
                                     let index = slot.index
                                     let station = slot.station
-                                    VILogo(station: station, image: artwork.image(for: station.artwork))
+                                    let logo = station.isSelfRadio ? Source.selfRadio.stationArtwork : station.stationArtwork
+                                    VILogo(station: station, image: artwork.image(for: logo))
                                         .frame(width: size, height: size)
                                         .overlay { Rectangle().stroke(.white.opacity(offset == 0 ? 1 : 0.12), lineWidth: offset == 0 ? 3 : 1) }
+                                        .overlay {
+                                            if offset == 0, controller.guideStep == .confirm {
+                                                Rectangle().strokeBorder(guideAccent, lineWidth: 4).allowsHitTesting(false)
+                                            }
+                                        }
                                         .scaleEffect(offset == 0 ? 1.055 : 0.97)
-                                        .brightness(offset == 0 ? 0 : -0.16)
                                         .offset(x: CGFloat(offset) * (size + 15))
                                         .transition(.identity)
                                         .onTapGesture { controller.click(index) }
@@ -328,27 +449,50 @@ private struct VIRadioView: View {
                             .clipped()
                             .animation(reduceMotion ? nil : .easeOut(duration: 0.20), value: controller.position)
                         HStack(spacing: 12) {
-                        Button { controller.move(1) } label: { Image(systemName: "chevron.right").font(.system(size: 16, weight: .semibold)) }
+                        Button { controller.move(1) } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 16, weight: .semibold))
+                                .viOutlined(width: 0.85)
+                        }
                             .focusable(false).focusEffectDisabled()
                             .accessibilityLabel("Next station")
+                            .overlay { guideHighlight(.browse) }
                         Button { controller.turnOff() } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "xmark.circle.fill")
-                                Text("TURN OFF")
+                                Circle()
+                                    .fill(.white)
+                                    .overlay { Circle().strokeBorder(.black, lineWidth: 1.75) }
+                                    .overlay {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 11, weight: .black))
+                                            .foregroundStyle(.black)
+                                    }
+                                    .frame(width: 25, height: 25)
+                                    .accessibilityHidden(true)
+                                Text("TURN OFF").viOutlined()
                             }.fixedSize()
                         }
                         .font(.custom("BarlowCondensed-SemiBold", size: 19))
                         .focusable(false).focusEffectDisabled()
+                        .overlay { guideHighlight(.close) }
                         }.frame(width: 130, alignment: .leading)
                     }.frame(maxWidth: .infinity, alignment: .center)
                     if let selected {
-                        GeometryReader { bar in
-                            Rectangle().fill(.white.opacity(0.24))
-                            Rectangle().fill(.white).frame(width: 12)
-                                .offset(x: (bar.size.width - 12) * CGFloat(controller.index) / CGFloat(max(1, controller.stations.count - 1)))
-                        }.frame(width: 220, height: 4)
-                        VStack(spacing: 5) {
+                        HStack(spacing: 8) {
+                            keycap(dial.prefs.viPreviousKey ?? .previous)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            GeometryReader { bar in
+                                Rectangle().fill(.white.opacity(0.24))
+                                Rectangle().fill(.white).frame(width: 12)
+                                    .overlay { Rectangle().stroke(.black, lineWidth: 0.9) }
+                                    .offset(x: (bar.size.width - 12) * CGFloat(controller.index) / CGFloat(max(1, controller.stations.count - 1)))
+                            }.frame(width: 220, height: 4)
+                            keycap(dial.prefs.viNextKey ?? .next)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        VStack(spacing: 3) {
                             Text(selected.title.uppercased()).font(.custom("BarlowCondensed-SemiBold", size: 30).weight(.bold))
+                                .viOutlined(width: 1.8)
                                 .overlay(alignment: .leading) {
                                     if dial.prefs.favorites.contains(where: { $0.id == selected.id }) {
                                         Image(systemName: "star.fill")
@@ -368,57 +512,251 @@ private struct VIRadioView: View {
                                             .accessibilityLabel("Loading station")
                                     }
                                 }
-                            if selected.id == dial.source?.id, !dial.track.isEmpty {
-                                let song = TrackDisplayInfo.parse(dial.track, matchedTitle: dial.matchedSong?.title, matchedArtist: dial.matchedSong?.artist)
-                                Text(song.title.uppercased())
-                                    .font(.custom("BarlowCondensed-SemiBold", size: 21))
-                                    .foregroundStyle(.white)
-                                if !song.artist.isEmpty {
-                                    Text(song.artist.uppercased())
+                            let detail = selected.isSelfRadio ? dial.selfRadio.displayDetail
+                                : selected.id == dial.source?.id ? dial.track : ""
+                            if !detail.isEmpty {
+                                let song = TrackDisplayInfo.parse(detail,
+                                    matchedTitle: selected.isSelfRadio ? dial.selfRadio.track?.title : dial.matchedSong?.title,
+                                    matchedArtist: selected.isSelfRadio ? dial.selfRadio.track?.artist : dial.matchedSong?.artist)
+                                VStack(spacing: 0) {
+                                    Text(song.title.uppercased())
                                         .font(.custom("BarlowCondensed-SemiBold", size: 21))
-                                        .foregroundStyle(.white)
+                                        .viOutlined()
+                                    if !song.artist.isEmpty {
+                                        Text(song.artist.uppercased())
+                                            .font(.custom("BarlowCondensed-SemiBold", size: 21))
+                                            .viOutlined()
+                                    }
                                 }
-                            } else {
+                            } else if !selected.isSelfRadio {
                                 Text("LIVE RADIO")
                                     .font(.custom("BarlowCondensed-SemiBold", size: 21))
-                                    .foregroundStyle(.white.opacity(0.85))
+                                    .viOutlined(foreground: .white.opacity(0.85))
+                            }
+                            if selected.isSelfRadio, !dial.selfRadio.active || dial.selfRadio.muted || detail.isEmpty {
+                                let status = dial.selfRadio.active ? dial.selfRadio.displayStatus : "Not Playing"
+                                Text(status.uppercased())
+                                    .font(.custom("BarlowCondensed-SemiBold", size: detail.isEmpty ? 21 : 14))
+                                    .viOutlined(foreground: .white.opacity(0.85))
                             }
                         }.lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: 650)
                     } else {
                         Text("ADD A STATION TO GET STARTED").font(.custom("BarlowCondensed-SemiBold", size: 26))
+                            .viOutlined()
                     }
-                    Text(controller.keyHints)
-                        .font(.custom("BarlowCondensed-SemiBold", size: 14)).foregroundStyle(.white.opacity(0.55))
-                        .multilineTextAlignment(.center).padding(.horizontal, 30)
-                        .opacity(controller.hintsVisible ? 1 : 0)
-                        .accessibilityHidden(!controller.hintsVisible)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: controller.hintsVisible)
+                    if let guideStep = controller.guideStep {
+                        guide(guideStep)
+                    } else {
+                        Text(controller.keyHints)
+                            .font(.custom("BarlowCondensed-SemiBold", size: 14))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .multilineTextAlignment(.center).padding(.horizontal, 30)
+                            .opacity(controller.hintsVisible ? 1 : 0)
+                            .accessibilityHidden(!controller.hintsVisible)
+                            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: controller.hintsVisible)
+                    }
                 }
                 .padding(.top, max(38, geometry.size.height * 0.055))
                 .frame(maxWidth: .infinity)
+                .opacity(controller.foregroundVisible ? 1 : 0)
+                .scaleEffect(reduceMotion || controller.foregroundVisible ? 1 : 0.985, anchor: .top)
+                .animation(.easeOut(duration: 0.22), value: controller.foregroundVisible)
+                }
             }
             .foregroundStyle(.white).buttonStyle(VIPlainButtonStyle())
             .focusEffectDisabled()
         }
+    }
+
+    private var shortcutPrompt: some View {
+        let binding = dial.prefs.viShortcut ?? VIShortcut()
+        let hasShortcut = dial.prefs.viEnabled != false
+        let key = binding.sameKey(as: VIShortcut()) ? "⌥ Q" : binding.label
+        return VStack(spacing: 14) {
+            Text(hasShortcut ? key : "VI Radio")
+                .font(.system(size: 78, weight: .semibold, design: .rounded))
+                .accessibilityLabel(hasShortcut && binding.sameKey(as: VIShortcut()) ? "Option Q" : key)
+            Text(hasShortcut ? "Press to open VI Radio" : "Open VI Radio to continue")
+                .font(.system(size: 23, weight: .medium))
+            HStack(spacing: 18) {
+                Button("Skip practice") { controller.dismiss(commit: false) }
+                    .foregroundStyle(.white.opacity(0.72))
+                Button("Open VI Radio") { controller.beginTutorialPractice() }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.white.opacity(0.14), in: Capsule())
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black.opacity(0.64))
+    }
+
+    @ViewBuilder private func guideHighlight(_ step: VIRadioGuideStep) -> some View {
+        if controller.guideStep == step {
+            Capsule().strokeBorder(guideAccent, lineWidth: 1.5)
+                .padding(-6)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func guide(_ step: VIRadioGuideStep) -> some View {
+        VStack(spacing: 6) {
+            Text("3/4 · VI Radio · Practice \(step.rawValue)/3")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(guideAccent)
+            Text(step.title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text(step.instruction)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.84))
+                .multilineTextAlignment(.center)
+            if step == .browse {
+                let shortcut = (dial.prefs.viShortcut ?? VIShortcut()).label
+                Text(dial.prefs.viEnabled == false
+                     ? "Open it again from the View menu."
+                     : "\(dial.prefs.viToggleMode == true ? "Press" : "Hold") \(shortcut) to open VI Radio anytime.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.76))
+            }
+            Button("Exit Practice") { controller.dismiss(commit: false) }
+                .font(.caption)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.12), in: Capsule())
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.black.opacity(0.88), in: .rect(cornerRadius: 12))
+        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(guideAccent.opacity(0.55)) }
+    }
+
+    private func keycap(_ shortcut: VIShortcut) -> some View {
+        Group {
+            if shortcut.sameKey(as: .next) {
+                Path { path in
+                    path.move(to: CGPoint(x: 1, y: 5))
+                    path.addLine(to: CGPoint(x: 11, y: 5))
+                    path.move(to: CGPoint(x: 7, y: 1))
+                    path.addLine(to: CGPoint(x: 11, y: 5))
+                    path.addLine(to: CGPoint(x: 7, y: 9))
+                    path.move(to: CGPoint(x: 12, y: 1))
+                    path.addLine(to: CGPoint(x: 12, y: 9))
+                }
+                .stroke(.black, style: StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round))
+                .frame(width: 13, height: 10)
+            } else {
+                Text(shortcut.label)
+                    .font(.system(size: 10, weight: .bold))
+            }
+        }
+            .foregroundStyle(.black)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 22, minHeight: 16)
+            .background(.white, in: Capsule())
+            .overlay { Capsule().strokeBorder(.black, lineWidth: 1.5) }
+            .accessibilityHidden(true)
+    }
+}
+
+private let viTitleOutlineWidth: CGFloat = 1.25
+
+private extension View {
+    func viOutlined(width: CGFloat = 1.55, foreground: Color = .white) -> some View {
+        self.foregroundStyle(foreground)
+            .background {
+                ZStack {
+                    ForEach(0..<8) { direction in
+                        let angle = CGFloat(direction) * .pi / 4
+                        self.foregroundStyle(.black)
+                            .offset(x: width * cos(angle), y: width * sin(angle))
+                    }
+                }
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            }
     }
 }
 
 private struct VILogo: View {
     let station: Source
     let image: CGImage?
-    private var color: Color {
+    private var placeholderColor: Color {
         let hash = station.id.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }
         return Color(hue: Double(hash % 360) / 360, saturation: 0.28, brightness: 0.23)
     }
     var body: some View {
         ZStack {
-            color
             if let image {
-                Image(decorative: image, scale: 1).resizable().scaledToFit()
+                stationArtworkMatte
+                if let edges = VILogoEdgeColors.forLandscapeImage(image) {
+                    VStack(spacing: 0) {
+                        edges.top.map { Color(cgColor: $0) } ?? stationArtworkMatte
+                        edges.bottom.map { Color(cgColor: $0) } ?? stationArtworkMatte
+                    }
+                }
+                Image(decorative: image, scale: 1)
+                    .allowedDynamicRange(.standard)
+                    .resizable()
+                    .scaledToFit()
             } else {
-                Text(station.title.uppercased()).font(.custom("BarlowCondensed-SemiBold", size: 23)).multilineTextAlignment(.center).padding(10)
+                placeholderColor
+                Text(station.title.uppercased())
+                    .font(.custom("BarlowCondensed-SemiBold", size: 23))
+                    .multilineTextAlignment(.center)
+                    .padding(10)
             }
-        }.clipped()
+        }
+        .clipped()
+    }
+}
+
+@MainActor
+private final class VILogoEdgeColors {
+    private static let cache: NSCache<CGImage, VILogoEdgeColors> = {
+        let cache = NSCache<CGImage, VILogoEdgeColors>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
+
+    let top: CGColor?
+    let bottom: CGColor?
+
+    private init(image: CGImage) {
+        top = Self.sampleRow(in: image, at: 0)
+        bottom = Self.sampleRow(in: image, at: image.height - 1)
+    }
+
+    static func forLandscapeImage(_ image: CGImage) -> VILogoEdgeColors? {
+        guard image.width > image.height else { return nil }
+        if let cached = cache.object(forKey: image) { return cached }
+        let colors = VILogoEdgeColors(image: image)
+        cache.setObject(colors, forKey: image, cost: image.bytesPerRow * image.height)
+        return colors
+    }
+
+    private static func sampleRow(in image: CGImage, at y: Int) -> CGColor? {
+        let sampleCount = min(image.width, 32)
+        guard let row = image.cropping(to: CGRect(x: 0, y: y, width: image.width, height: 1)),
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: sampleCount, height: 1, bitsPerComponent: 8,
+                                      bytesPerRow: sampleCount * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
+                                          CGBitmapInfo.byteOrder32Big.rawValue),
+              let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        context.interpolationQuality = .none
+        context.draw(row, in: CGRect(x: 0, y: 0, width: sampleCount, height: 1))
+        let opaqueSamples = (0..<sampleCount).map { $0 * 4 }.filter { pixels[$0 + 3] >= 240 }
+        guard opaqueSamples.count > sampleCount / 2 else { return nil }
+        // Use the median so lettering or a few stray edge pixels do not tint the fill.
+        let rgb = (0..<3).map { channel in
+            let values = opaqueSamples.map { CGFloat(pixels[$0 + channel]) / CGFloat(pixels[$0 + 3]) }.sorted()
+            return values[values.count / 2]
+        }
+        return CGColor(colorSpace: space, components: rgb + [1])
     }
 }
 
@@ -513,7 +851,6 @@ struct VIRadioSettings: View {
         if previous { dial.prefs.viPreviousKey = key } else { dial.prefs.viNextKey = key }
     }
     var body: some View {
-        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             Toggle("Enable global shortcut", isOn: Binding(get: { dial.prefs.viEnabled ?? true }, set: { dial.prefs.viEnabled = $0 }))
             HStack {
@@ -548,6 +885,32 @@ struct VIRadioSettings: View {
             }
             if !keyError.isEmpty { Text(keyError).font(.caption).foregroundStyle(.orange) }
             Divider()
+            Text("Background").font(.headline)
+            HStack {
+                Text("Blur strength").frame(width: 115, alignment: .leading)
+                Slider(value: Binding(get: { dial.prefs.viBackgroundStrength ?? VIRadioBackdrop.defaultStrength },
+                                      set: { dial.prefs.viBackgroundStrength = $0 }), in: 0...1)
+                    .accessibilityLabel("Background blur strength")
+                Text((dial.prefs.viBackgroundStrength ?? VIRadioBackdrop.defaultStrength).formatted(.percent.precision(.fractionLength(0))))
+                    .monospacedDigit().frame(width: 42, alignment: .trailing)
+            }
+            HStack {
+                Text("Darkness").frame(width: 115, alignment: .leading)
+                Slider(value: Binding(get: { dial.prefs.viBackgroundDarkness ?? VIRadioBackdrop.defaultDarkness },
+                                      set: { dial.prefs.viBackgroundDarkness = $0 }), in: 0...0.8)
+                    .accessibilityLabel("Background darkness")
+                Text((dial.prefs.viBackgroundDarkness ?? VIRadioBackdrop.defaultDarkness).formatted(.percent.precision(.fractionLength(0))))
+                    .monospacedDigit().frame(width: 42, alignment: .trailing)
+            }
+            VIRadioBackdropPreview(strength: dial.prefs.viBackgroundStrength ?? VIRadioBackdrop.defaultStrength,
+                                   darkness: dial.prefs.viBackgroundDarkness ?? VIRadioBackdrop.defaultDarkness)
+                .frame(height: 80).clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("Live background preview")
+            Button("Reset background") {
+                dial.prefs.viBackgroundStrength = nil
+                dial.prefs.viBackgroundDarkness = nil
+            }
+            Divider()
             Text("Click a shortcut to change it.\nArrows / Shift-Tab: browse · Space / Return: play\nEscape: close · Turn Off: pause and close")
                 .font(.caption).foregroundStyle(.secondary)
             if (dial.prefs.viPreviousKey ?? .previous).keyCode == 57 || (dial.prefs.viNextKey ?? .next).keyCode == 57 {
@@ -557,10 +920,8 @@ struct VIRadioSettings: View {
                 Text("Shortcut unavailable. Choose another combination.").font(.caption).foregroundStyle(.orange)
             }
             Button("Open VI radio") {
-                dial.pane = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { controller.show() }
+                controller.show()
             }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
         }
     }
 }

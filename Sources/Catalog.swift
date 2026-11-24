@@ -16,7 +16,22 @@ struct Source: Codable, Identifiable, Hashable {
     var episode = false
     var votes = 0
 
-    var isRadio: Bool { feed == nil && !episode && !url.isFileURL }
+    var stationArtwork: URL? { artwork ?? USStationArtwork.url(for: id) }
+
+    var isUSRadio: Bool {
+        let region = country.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return isRadio && (region == "us" || region == "usa" || region.contains("united states"))
+    }
+
+    var isSelfRadio: Bool { id == "radiodial-self-radio" }
+    var isStation: Bool { isRadio || isSelfRadio }
+    var isRadio: Bool { !isSelfRadio && feed == nil && !episode && !url.isFileURL }
+
+    static var selfRadio: Source {
+        Source(id: "radiodial-self-radio", title: "Self Radio", url: URL(string: "radiodial://system-audio")!,
+               subtitle: "System Audio", tags: "System Audio",
+               artwork: Bundle.main.url(forResource: "SelfRadio", withExtension: "png"))
+    }
 
     var fmFrequency: Double? {
         guard isRadio else { return nil }
@@ -197,18 +212,26 @@ enum Catalog {
 
     static func artworkThumbnail(from url: URL, maxPixels: Int = 512,
                                  cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy) async throws -> CGImage? {
-        let request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: 8)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        if url.isFileURL {
+            data = try await Task.detached(priority: .utility) { try Data(contentsOf: url) }.value
+        } else {
+            let request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: 8)
+            let (bytes, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
+            data = bytes
+        }
         try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let image = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let options = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            kCGImageSourceShouldCacheImmediately: true
-        ] as CFDictionary
-        return CGImageSourceCreateThumbnailAtIndex(image, 0, options)
+        return await Task.detached(priority: .userInitiated) {
+            guard let image = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as CGImage? }
+            let options = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                kCGImageSourceShouldCacheImmediately: true
+            ] as CFDictionary
+            return CGImageSourceCreateThumbnailAtIndex(image, 0, options)
+        }.value
     }
 
     struct SongMatch {

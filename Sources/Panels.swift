@@ -5,16 +5,13 @@ import SwiftUI
 struct PanelBody: View {
     @ObservedObject var dial: DialState
     let pane: DialState.Pane
+    var advanceTutorial: (() -> Void)?
+    var endTutorial: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var minutes = 30
     @State private var title = ""
     @State private var address = ""
     @State private var query = ""
-    @State private var secret = ""
-    @State private var message = ""
-    @State private var settingsTab = 0
-    @State private var launching = SMAppService.mainApp.status == .enabled
-    @State private var automaticUpdates = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -22,7 +19,7 @@ struct PanelBody: View {
                 Text(heading).font(.title2.bold())
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title3) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).focusable(pane != .settings).accessibilityLabel("Close")
+                    .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Close")
             }
             switch pane {
             case .capture: capture
@@ -31,7 +28,6 @@ struct PanelBody: View {
             case .sleep: sleep
             case .lyrics: LyricsView(dial: dial)
             case .info: sourceInfo
-            case .settings: settings
             case .theme: themes
             case .playlist: playlists
             case .presets: presets
@@ -39,9 +35,6 @@ struct PanelBody: View {
             case .stream: stream
             case .custom: custom
             }
-        }
-        .background {
-            if pane == .settings { SettingsInitialFocus() }
         }
     }
 
@@ -53,7 +46,6 @@ struct PanelBody: View {
         case .sleep: return "Sleep timer"
         case .lyrics: return "Song & Lyrics"
         case .info: return "Source information"
-        case .settings: return "Settings"
         case .theme: return "Themes"
         case .playlist: return "Playlists"
         case .presets: return "Equalizer presets"
@@ -105,142 +97,13 @@ struct PanelBody: View {
                         if source.isRadio, UUID(uuidString: source.id) != nil { Text("\(source.votes) directory votes").font(.caption) }
                         HStack {
                             if let website = source.website { Link("Website", destination: website) }
-                            if !source.url.isFileURL { Button("Test Stream") { dial.test(source) } }
+                            if !source.url.isFileURL && !source.isSelfRadio { Button("Test Stream") { dial.test(source) } }
                             if source.isRadio, UUID(uuidString: source.id) != nil { Button("Vote") { dial.vote(source) } }
                         }
                     }
                 }
             } else { Text("Choose a station or episode first.").foregroundStyle(.secondary) }
             Text(dial.status).foregroundStyle(.secondary).font(.caption)
-        }
-    }
-
-    private var settingsCountries: [Catalog.Country] {
-        let pinned = [Catalog.Country(name: "US", iso_3166_1: "US"),
-                      Catalog.Country(name: "UK", iso_3166_1: "GB"),
-                      Catalog.Country(name: "France", iso_3166_1: "FR")]
-        let codes = Set(pinned.map(\.id))
-        var countries = pinned + dial.countries.filter { !codes.contains($0.id) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        if let saved = dial.prefs.defaultRadioCountry, !saved.isEmpty,
-           !countries.contains(where: { $0.id == saved }) {
-            countries.append(Catalog.Country(name: saved, iso_3166_1: saved))
-        }
-        return countries
-    }
-
-    private var settings: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Settings category", selection: $settingsTab) {
-                Text("General").tag(0)
-                Text("Network").tag(1)
-                Text("Integrations").tag(2)
-                Text("Shortcuts").tag(3)
-                Text("VI radio").tag(4)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            Group {
-            if settingsTab == 0 {
-            ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Default station country", selection: Binding(
-                    get: { dial.prefs.defaultRadioCountry ?? "" },
-                    set: { dial.prefs.defaultRadioCountry = $0.isEmpty ? nil : $0 }
-                )) {
-                    Text("All Countries").tag("")
-                    ForEach(settingsCountries) { country in
-                        Text(country.name).tag(country.id)
-                    }
-                }
-                Toggle("Resume last source on launch", isOn: $dial.prefs.resumeOnLaunch)
-                Toggle("Show player in the menu bar", isOn: $dial.prefs.keepInMenuBar)
-                Toggle("Automatically download and install updates", isOn: $automaticUpdates)
-                    .onAppear { automaticUpdates = UpdateController.shared.automaticallyInstallsUpdates }
-                    .onChange(of: automaticUpdates) { _, enabled in
-                        UpdateController.shared.automaticallyInstallsUpdates = enabled
-                    }
-                Toggle("Open at login", isOn: $launching)
-                    .onChange(of: launching) { _, enabled in
-                        do {
-                            if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                        } catch { message = error.localizedDescription }
-                    }
-                Toggle("Identify music automatically when stations provide no track title", isOn: $dial.prefs.automaticRecognition)
-                Text("Identification sends a short sample of the playing stream to the recognition service.").font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Text("Balance")
-                    Slider(value: Binding(get: { dial.prefs.balance }, set: { dial.setBalance($0) }), in: -100...100)
-                    Button("Center") { dial.setBalance(0) }
-                }
-                HStack {
-                    Text("Podcast store")
-                    TextField("US", text: $dial.prefs.podcastCountry).frame(width: 70)
-                    Text("Two-letter country code").foregroundStyle(.secondary).font(.caption)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            }
-            } else if settingsTab == 1 {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Stream buffer", selection: $dial.prefs.profile) {
-                    ForEach(["Low latency", "Balanced", "Stable"], id: \.self) { Text($0) }
-                }
-                TextField("HTTP proxy, e.g. http://127.0.0.1:8080", text: $dial.prefs.proxy)
-                Text("Applies to new stream connections. Directory and podcast search use macOS network settings.").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }.padding(14)
-            } else if settingsTab == 2 {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack {
-                    TextField("API key", text: $dial.prefs.lastFMKey)
-                    SecureField("Shared secret", text: $secret)
-                }
-                HStack {
-                    Button("Authorize Last.fm") {
-                        Task {
-                            do {
-                                try await dial.links.beginAuth(key: dial.prefs.lastFMKey, secret: secret)
-                                secret = ""
-                                message = "Approve access in your browser, then click Complete Authorization."
-                            } catch { message = error.localizedDescription }
-                        }
-                    }.disabled(dial.prefs.lastFMKey.isEmpty || secret.isEmpty)
-                    Button("Complete Authorization") {
-                        Task {
-                            do {
-                                dial.prefs.lastFMUser = try await dial.links.finishAuth(key: dial.prefs.lastFMKey)
-                                dial.prefs.lastFMEnabled = true
-                                message = "Connected as \(dial.prefs.lastFMUser)"
-                            } catch { message = error.localizedDescription }
-                        }
-                    }
-                }
-                if !dial.prefs.lastFMUser.isEmpty {
-                    Toggle("Scrobble as \(dial.prefs.lastFMUser)", isOn: $dial.prefs.lastFMEnabled)
-                    Button("Disconnect Last.fm") {
-                        dial.links.disconnect()
-                        dial.prefs.lastFMEnabled = false
-                        dial.prefs.lastFMUser = ""
-                    }
-                }
-                Divider()
-                TextField("Discord application ID", text: $dial.prefs.discordID)
-                Text("Rich Presence requires the Discord desktop app and your application ID.").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }.padding(14)
-            } else if settingsTab == 4 {
-                VIRadioSettings(dial: dial)
-            } else {
-            ShortcutSettings(dial: dial)
-            }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 6))
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 305)
-        .overlay(alignment: .bottom) {
-            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).padding(.bottom, 7) }
         }
     }
 
@@ -273,9 +136,13 @@ struct PanelBody: View {
 
     private var themes: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if dial.gettingStartedStep == .themes, let advanceTutorial {
+                GettingStartedHint(step: .themes, text: "Choose a theme, or keep the one you have.",
+                                   advance: advanceTutorial, skip: endTutorial)
+            }
             Button {
                 dial.prefs.theme = RadioReceiverStyle.name
-                dismiss()
+                if dial.gettingStartedStep != .themes { dismiss() }
             } label: {
                 HStack(spacing: 14) {
                     ReceiverThemePreview().frame(width: 176, height: 82)
@@ -298,7 +165,7 @@ struct PanelBody: View {
 
             Button {
                 dial.prefs.theme = "Cover Flow"
-                dismiss()
+                if dial.gettingStartedStep != .themes { dismiss() }
             } label: {
                 HStack(spacing: 14) {
                     CoverFlowThemePreview().frame(width: 176, height: 82)
@@ -319,8 +186,12 @@ struct PanelBody: View {
             .accessibilityLabel("Cover Flow, A tribute to iPod")
 
             Button {
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { VIRadioController.shared.show() }
+                if dial.gettingStartedStep == .themes, let advanceTutorial {
+                    advanceTutorial()
+                } else {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { VIRadioController.shared.show() }
+                }
             } label: {
                 HStack(spacing: 14) {
                     HStack(spacing: 5) {
@@ -718,6 +589,207 @@ private struct PaletteThemePreview: View {
         .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(palette.accent.opacity(0.25)) }
         .accessibilityHidden(true)
     }
+}
+
+struct RadioDialSettings: View {
+    @ObservedObject var dial: DialState
+    let startTutorial: () -> Void
+    let finishTutorial: () -> Void
+    @State private var category = Category.general
+    @State private var secret = ""
+    @State private var loginMessage = ""
+    @State private var integrationMessage = ""
+    @State private var launching = SMAppService.mainApp.status == .enabled
+    @State private var automaticUpdates = false
+
+    private enum Category: String, CaseIterable {
+        case general = "General"
+        case network = "Network"
+        case integrations = "Integrations"
+        case shortcuts = "Shortcuts"
+        case viRadio = "VI radio"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Settings category", selection: $category) {
+                ForEach(Category.allCases, id: \.self) { category in
+                    Text(category.rawValue).tag(category)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.large)
+            .padding(20)
+
+            Divider()
+
+            ScrollView {
+                Group {
+                    switch category {
+                    case .general: general
+                    case .network: network
+                    case .integrations: integrations
+                    case .shortcuts: ShortcutSettings(dial: dial)
+                    case .viRadio: VIRadioSettings(dial: dial)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(20)
+            }
+            .id(category)
+            .id(dial.gettingStartedStep == .selfRadio)
+        }
+        .background { SettingsInitialFocus() }
+        .onChange(of: dial.gettingStartedStep, initial: true) { _, step in
+            if step == .selfRadio { category = .general }
+        }
+    }
+
+    private var settingsCountries: [Catalog.Country] {
+        let pinned = [Catalog.Country(name: "US", iso_3166_1: "US"),
+                      Catalog.Country(name: "UK", iso_3166_1: "GB"),
+                      Catalog.Country(name: "France", iso_3166_1: "FR")]
+        let codes = Set(pinned.map(\.id))
+        var countries = pinned + dial.countries.filter { !codes.contains($0.id) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        if let saved = dial.prefs.defaultRadioCountry, !saved.isEmpty,
+           !countries.contains(where: { $0.id == saved }) {
+            countries.append(Catalog.Country(name: saved, iso_3166_1: saved))
+        }
+        return countries
+    }
+
+    private var general: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button("Getting Started…", action: startTutorial)
+                .disabled(dial.gettingStartedStep != nil)
+            Picker("Default station country", selection: Binding(
+                get: { dial.prefs.defaultRadioCountry ?? "" },
+                set: { dial.prefs.defaultRadioCountry = $0.isEmpty ? nil : $0 }
+            )) {
+                Text("All Countries").tag("")
+                ForEach(settingsCountries) { country in
+                    Text(country.name).tag(country.id)
+                }
+            }
+            Toggle("Resume last source on launch", isOn: $dial.prefs.resumeOnLaunch)
+            Divider()
+            Text("Self Radio").font(.headline)
+            if dial.gettingStartedStep == .selfRadio {
+                GettingStartedHint(step: .selfRadio, text: "Choose a music app for Self Radio. Automatic switching is optional.",
+                                   advance: finishTutorial)
+            }
+            Picker("Default music app", selection: Binding(
+                get: { dial.prefs.selfRadioMusicApp ?? .music },
+                set: { dial.prefs.selfRadioMusicApp = $0 })) {
+                ForEach(SelfRadioMusicApp.allCases, id: \.self) { app in
+                    Text(app.name).tag(app)
+                }
+            }
+            .gettingStartedHighlight(dial.gettingStartedStep == .selfRadio)
+            Toggle("Automatically switch to Self Radio", isOn: Binding(
+                get: { dial.prefs.selfRadioEnabled ?? false },
+                set: { dial.prefs.selfRadioEnabled = $0; dial.configureSelfRadio() }))
+            Toggle("Read song information from Music and Spotify", isOn: Binding(
+                get: { dial.prefs.selfRadioMetadata ?? false },
+                set: { dial.prefs.selfRadioMetadata = $0; dial.configureSelfRadio() }))
+            Text("Song information includes paused tracks and uses Automation access. Automatic switching uses System Audio Recording permission.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text(dial.selfRadio.active ? dial.selfRadio.displayStatus : dial.selfRadio.status).font(.caption).foregroundStyle(.secondary)
+            if !dial.selfRadio.metadataStatus.isEmpty {
+                Text(dial.selfRadio.metadataStatus).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Retry detection") { dial.selfRadio.retry() }.disabled(dial.prefs.selfRadioEnabled != true)
+                Button("Privacy Settings") {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
+                }
+            }
+            Divider()
+            Toggle("Show player in the menu bar", isOn: $dial.prefs.keepInMenuBar)
+            Toggle("Automatically download and install updates", isOn: $automaticUpdates)
+                .onAppear { automaticUpdates = UpdateController.shared.automaticallyInstallsUpdates }
+                .onChange(of: automaticUpdates) { _, enabled in
+                    UpdateController.shared.automaticallyInstallsUpdates = enabled
+                }
+            Toggle("Open at login", isOn: $launching)
+                .onChange(of: launching) { _, enabled in
+                    do {
+                        if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+                    } catch { loginMessage = error.localizedDescription }
+                }
+            Toggle("Identify music automatically when stations provide no track title", isOn: $dial.prefs.automaticRecognition)
+            Text("Identification sends a short sample of the playing stream to the recognition service.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Balance")
+                Slider(value: Binding(get: { dial.prefs.balance }, set: { dial.setBalance($0) }), in: -100...100)
+                Button("Center") { dial.setBalance(0) }
+            }
+            HStack {
+                Text("Podcast store")
+                TextField("US", text: $dial.prefs.podcastCountry).frame(width: 70)
+                Text("Two-letter country code").foregroundStyle(.secondary).font(.caption)
+            }
+            if !loginMessage.isEmpty {
+                Text(loginMessage).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var network: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Stream buffer", selection: $dial.prefs.profile) {
+                ForEach(["Low latency", "Balanced", "Stable"], id: \.self) { Text($0) }
+            }
+            TextField("HTTP proxy, e.g. http://127.0.0.1:8080", text: $dial.prefs.proxy)
+            Text("Applies to new stream connections. Directory and podcast search use macOS network settings.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var integrations: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                TextField("API key", text: $dial.prefs.lastFMKey)
+                SecureField("Shared secret", text: $secret)
+            }
+            HStack {
+                Button("Authorize Last.fm") {
+                    Task {
+                        do {
+                            try await dial.links.beginAuth(key: dial.prefs.lastFMKey, secret: secret)
+                            secret = ""
+                            integrationMessage = "Approve access in your browser, then click Complete Authorization."
+                        } catch { integrationMessage = error.localizedDescription }
+                    }
+                }.disabled(dial.prefs.lastFMKey.isEmpty || secret.isEmpty)
+                Button("Complete Authorization") {
+                    Task {
+                        do {
+                            dial.prefs.lastFMUser = try await dial.links.finishAuth(key: dial.prefs.lastFMKey)
+                            dial.prefs.lastFMEnabled = true
+                            integrationMessage = "Connected as \(dial.prefs.lastFMUser)"
+                        } catch { integrationMessage = error.localizedDescription }
+                    }
+                }
+            }
+            if !dial.prefs.lastFMUser.isEmpty {
+                Toggle("Scrobble as \(dial.prefs.lastFMUser)", isOn: $dial.prefs.lastFMEnabled)
+                Button("Disconnect Last.fm") {
+                    dial.links.disconnect()
+                    dial.prefs.lastFMEnabled = false
+                    dial.prefs.lastFMUser = ""
+                }
+            }
+            Divider()
+            TextField("Discord application ID", text: $dial.prefs.discordID)
+            Text("Rich Presence requires the Discord desktop app and your application ID.").font(.caption).foregroundStyle(.secondary)
+            if !integrationMessage.isEmpty {
+                Text(integrationMessage).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
 }
 
 private struct SettingsInitialFocus: NSViewRepresentable {

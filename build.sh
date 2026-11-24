@@ -28,7 +28,10 @@ fi
 cp Info.plist "$app/Contents/Info.plist"
 cp recognize.py "$app/Contents/Resources/recognize.py"
 cp Resources/VI-radio-selection.wav "$app/Contents/Resources/VI-radio-selection.wav"
+cp Resources/SelfRadio.png "$app/Contents/Resources/SelfRadio.png"
+xcrun actool Resources/Assets.xcassets --compile "$app/Contents/Resources" --platform macosx --minimum-deployment-target 14.0
 cp Resources/Punctum-Regular.ttf Resources/Punctum-OFL.txt Resources/BarlowCondensed-Regular.ttf Resources/BarlowCondensed-SemiBold.ttf Resources/Barlow-Regular.ttf Resources/Barlow-OFL.txt "$app/Contents/Resources/"
 if [[ -f RadioDial.icns ]]; then cp RadioDial.icns "$app/Contents/Resources/RadioDial.icns"; fi
+cp Resources/AppIcon/RadioDial-Dark.icns "$app/Contents/Resources/RadioDial-Dark.icns"
 codesign --force --deep --sign - "$app"
 printf '%s\n' "$app"

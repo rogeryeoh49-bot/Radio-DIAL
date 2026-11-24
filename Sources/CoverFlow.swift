@@ -8,7 +8,6 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
     let country: Country
     let library: Library
     let options: Options
-    let countryFiltered: Bool
     let keyboardEnabled: Bool
     let supportsHDR: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -20,6 +19,7 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
     @State private var centeringStationID: String?
     @State private var entryStrength: Double?
     @State private var pauseAppearance = 0.0
+    @State private var playbackPresence = 0.0
     @State private var settledFocus = false
     @State private var stationNameHovered = false
     @State private var songCoverHovered = false
@@ -27,12 +27,7 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
     @State private var songHoverTask: Task<Void, Never>?
     @State private var highlightedCover: (source: CGImage, image: CGImage)?
 
-    private var stations: [Source] {
-        var ids = Set<String>()
-        let current = dial.source.map { [$0] } ?? []
-        let favorites = countryFiltered ? [] : dial.prefs.favorites
-        return (dial.stations + favorites + current).filter { $0.isRadio && ids.insert($0.id).inserted }
-    }
+    private var stations: [Source] { dial.carouselStations }
 
     var body: some View {
         let items = stations
@@ -44,14 +39,16 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
         let active = playingIndex != nil && dial.playback != .stopped
         let focused = active && scrollPosition == nil && previewID == nil
         let paused = active && dial.playback == .paused
-        let artworkFocus = playbackFocus(at: position, playingIndex: active ? playingIndex : nil)
+        let artworkFocus = playbackFocus(at: position, playingIndex: playingIndex) * playbackPresence
         let focus = artworkFocus * (1 - 0.65 * pauseAppearance)
         let playIconOpacity = focused && (dial.playback == .playing || paused) ? pauseAppearance : 1
         let dwellStation = focused && dial.playback == .playing && centeringStationID == nil && keyboardEnabled ? dial.source?.id : nil
         let dwellAmount = settledFocus ? 1.0 : 0.0
         let playingArtwork = active ? dial.art : nil
+        let selfRadioArtwork = dial.selfRadio.artwork
+        let trackDetail = station?.isSelfRadio == true ? dial.selfRadio.displayDetail : dial.track
         let highlightSource = supportsHDR && active
-            ? artwork.image(for: playingArtwork) ?? artwork.image(for: dial.source?.artwork) : nil
+            ? artwork.image(for: playingArtwork) ?? artwork.image(for: dial.source?.stationArtwork) : nil
         let highlight = highlightedCover.flatMap { $0.source === highlightSource ? $0.image : nil }
 
         VStack(spacing: 0) {
@@ -80,14 +77,15 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                             let distance = Double(first + entry.offset) - position
                             let isCenter = first + entry.offset == index
                             let turn = min(abs(distance), 1)
-                            let isPlaying = active && first + entry.offset == playingIndex
+                            let isPlaying = first + entry.offset == playingIndex
                             ZStack(alignment: .bottom) {
                             Button {
                                 activate(item, from: position)
                             } label: {
-                                FlowCover(image: artwork.image(for: item.artwork),
-                                          album: isPlaying && playingArtwork != item.artwork ? artwork.image(for: playingArtwork) : nil,
-                                          albumOpacity: isPlaying ? artworkFocus : 0,
+                                FlowCover(fallbackTitle: item.isUSRadio ? item.title : nil, image: artwork.image(for: item.stationArtwork),
+                                          album: item.isSelfRadio ? artwork.image(for: selfRadioArtwork)
+                                            : isPlaying && playingArtwork != item.stationArtwork ? artwork.image(for: playingArtwork) : nil,
+                                          albumOpacity: item.isSelfRadio ? 1 : isPlaying ? artworkFocus : 0,
                                           highlight: isPlaying ? highlight : nil,
                                           highlightOpacity: isPlaying && (dial.playback == .playing || paused) ? artworkFocus * (1 - pauseAppearance) : 0,
                                           size: size)
@@ -117,7 +115,7 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                             }
                             if isPlaying, isCenter, focused, !dial.track.isEmpty,
                                let url = dial.appleMusicURL,
-                               playingArtwork != item.artwork, artwork.image(for: playingArtwork) != nil,
+                               playingArtwork != item.stationArtwork, artwork.image(for: playingArtwork) != nil,
                                songCoverHovered || songLinkHovered {
                                 Button {
                                     NSWorkspace.shared.open(url)
@@ -194,10 +192,10 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                     .padding(.top, 34)
                     .contentShape(Rectangle())
                     .onHover { stationNameHovered = $0 }
-                Text(dial.track.isEmpty ? " " : dial.track)
+                Text(trackDetail.isEmpty ? " " : trackDetail)
                     .font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    .opacity(artworkFocus)
-                    .accessibilityHidden(!focused || dial.track.isEmpty)
+                    .opacity(station?.isSelfRadio == true ? 1 : artworkFocus)
+                    .accessibilityHidden(trackDetail.isEmpty || (station?.isSelfRadio != true && !focused))
                 HStack(spacing: 25) {
                     Button { browse(index - 1, items: items) } label: { Image(systemName: "chevron.left") }
                         .accessibilityLabel("Previous cover").disabled(index <= 0)
@@ -218,7 +216,8 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                         .accessibilityLabel("Next cover").disabled(index >= items.count - 1)
                 }
                 .buttonStyle(.borderless)
-                if let source = dial.source, source.isRadio, dial.playback != .stopped {
+                .gettingStartedHighlight(dial.gettingStartedStep == .coverFlow)
+                if let source = dial.source, source.isStation, dial.playback != .stopped {
                     Button { revealPlayingStation(from: position, items: items) } label: {
                         PlayingStatusLabel(
                             text: dial.status,
@@ -241,7 +240,7 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
             GeometryReader { geometry in
                 if let anchor, let station {
                     let label = frequencyLookup.frequencies[station.id].map { String(format: "%.1f FM", $0) }
-                        ?? fmFrequency(station.title).map { $0 + " FM" } ?? "ONLINE"
+                        ?? fmFrequency(station.title).map { $0 + " FM" } ?? (station.isSelfRadio ? "SYSTEM AUDIO" : "ONLINE")
                     Text(label)
                         .font(.custom("Punctum-Regular", size: 24))
                         .foregroundStyle(.white.opacity(0.8))
@@ -276,19 +275,35 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                 pauseAppearance = isPaused ? 1 : 0
             }
         }
+        .onChange(of: active, initial: true) { _, isActive in
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.36)) {
+                playbackPresence = isActive ? 1 : 0
+                if isActive, previewID == dial.source?.id { previewID = nil }
+            }
+        }
         .task(id: highlightSource.map(ObjectIdentifier.init)) {
-            guard let highlightSource, let image = await CoverHighlight.render(highlightSource),
+            guard let highlightSource else { return }
+            let rendering = Task.detached(priority: .userInitiated) { await CoverHighlight.render(highlightSource) }
+            let image = await withTaskCancellationHandler { await rendering.value } onCancel: { rendering.cancel() }
+            guard let image,
                   !Task.isCancelled else { return }
             highlightedCover = (highlightSource, image)
         }
         .onChange(of: index, initial: true) { _, _ in prefetch(items, at: index, playingArtwork: playingArtwork) }
         .onChange(of: items) { _, _ in prefetch(items, at: index, playingArtwork: playingArtwork) }
         .onChange(of: playingArtwork) { _, _ in prefetch(items, at: index, playingArtwork: playingArtwork) }
+        .onChange(of: selfRadioArtwork) { _, _ in prefetch(items, at: index, playingArtwork: playingArtwork) }
         .onChange(of: keyboardEnabled) { _, enabled in
             if !enabled { endKeyHold() }
         }
-        .onChange(of: dial.source?.id) { _, id in
+        .onChange(of: dial.source?.id) { oldID, id in
             if let id, id == centeringStationID { return }
+            if let id, dial.source?.isSelfRadio == true,
+               let target = items.firstIndex(where: { $0.id == id }) {
+                let previous = scrollPosition ?? items.firstIndex(where: { $0.id == (previewID ?? oldID) }).map(Double.init) ?? Double(target)
+                centerStation(id, from: previous, to: Double(target), entering: true)
+                return
+            }
             settleTask?.cancel()
             cancelKeyHold()
             cancelReveal()
@@ -330,7 +345,8 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
     }
 
     private func prefetch(_ items: [Source], at index: Int, playingArtwork: URL?) {
-        artwork.prefetch(CoverFlowArtwork.priorityURLs(in: items, around: index, playingArtwork: playingArtwork))
+        let selfRadio = [dial.selfRadio.artwork].compactMap { $0 }
+        artwork.prefetch(selfRadio + CoverFlowArtwork.priorityURLs(in: items, around: index, playingArtwork: playingArtwork))
     }
 
     private func playbackFocus(at position: Double, playingIndex: Int?) -> Double {
@@ -643,7 +659,11 @@ private struct CoverFlowInput: NSViewRepresentable {
     }
 }
 
+let stationArtworkMatte = Color(white: 0.13)
+
 private struct FlowCover: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let fallbackTitle: String?
     let image: CGImage?
     let album: CGImage?
     let albumOpacity: Double
@@ -678,6 +698,8 @@ private struct FlowCover: View {
                     .frame(width: size, height: size)
                     .background(Color(white: 0.13))
                     .opacity(albumOpacity)
+                    .id(ObjectIdentifier(album))
+                    .transition(.opacity)
             }
             if showHighlight, let highlight {
                 Image(decorative: highlight, scale: 1)
@@ -691,7 +713,8 @@ private struct FlowCover: View {
             }
         }
         .frame(width: size, height: size)
-        .background(isFramedStation ? Color(white: 0.13) : .clear)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: album.map(ObjectIdentifier.init))
+        .background(isFramedStation ? stationArtworkMatte : .clear)
         .animation(.easeInOut(duration: 0.18), value: highlight.map(ObjectIdentifier.init))
         .clipShape(.rect(cornerRadius: 5))
         .overlay {
@@ -705,8 +728,20 @@ private struct FlowCover: View {
         return abs(image.width - image.height) <= max(image.width, image.height) / 50
     }
 
-    private var placeholder: some View {
-        Image(systemName: "radio").font(.system(size: size * 0.23, weight: .light))
-            .foregroundStyle(.white.opacity(0.53))
+    @ViewBuilder private var placeholder: some View {
+        if let fallbackTitle, !fallbackTitle.isEmpty {
+            Text(fallbackTitle)
+                .font(.custom("BarlowCondensed-SemiBold", size: size * 0.15))
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .minimumScaleFactor(0.55)
+                .padding(size * 0.12)
+                .frame(width: size, height: size)
+                .foregroundStyle(.white.opacity(0.9))
+                .background(Color(white: 0.15).gradient)
+        } else {
+            Image(systemName: "radio").font(.system(size: size * 0.23, weight: .light))
+                .foregroundStyle(.white.opacity(0.53))
+        }
     }
 }

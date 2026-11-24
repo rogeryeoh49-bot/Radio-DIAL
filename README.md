@@ -37,13 +37,21 @@ xattr -dr com.apple.quarantine "$HOME/Applications/Radio Dial.app"
 
 This removes macOS’s quarantine attribute from that copy of the app. If you installed it somewhere else, replace the path with the location of your Radio Dial.app. Then open the app again.
 
+## Getting started in the app
+
+The guided tour opens automatically for a new installation. Finish or skip it once, or replay it from **Help → Getting Started…** or **Settings → General → Getting Started…**. The tour points out station search, themes, Cover Flow controls, and Self Radio settings. It shows the VI radio shortcut in a full-screen prompt and lets you practice switching stations without interrupting playback.
+
 ## VI radio selector
 
 Hold **Option + Q** from any app to open the full-screen VI radio selector. By default, navigating immediately plays the selected station; releasing the shortcut closes the selector. Favorites appear first and display a gold star to the left of the station name; a loading spinner appears on the right while connecting. VI radio uses a short selection tone and trackpad haptics instead of loading static; favorite stations give stronger feedback. Turn Off pauses playback and closes the selector. Song titles and artists appear on separate lines with matching typography. The current station remains available.
 
-In **Settings → VI radio**, enable or disable the global shortcut, record a custom shortcut, or choose toggle mode. Station switching can play immediately (the default) or wait for Space, Return or a logo click. In confirmation mode, releasing the opening shortcut closes without confirming the preview. In press mode, press the shortcut once to open and again to close without changing playback; Return or click confirms a station. Tab browses forward; The backtick key (above Tab) and Shift-Tab browse backward. Previous/next keys are customizable in VI radio settings. Space or Return confirms playback. Navigation hints appear after 8 seconds without key presses, clicks or scrolling, and hide again on those actions. Moving the mouse does not reset the timer. Caps Lock can still be assigned as a custom navigation key and retains its normal macOS behavior. Station logos preload around the current selection and stay cached between openings. You can also open the selector from **View** or the **VI radio** card in Themes.
+In **Settings → VI radio**, enable or disable the global shortcut, record a custom shortcut, or choose toggle mode. Station switching can play immediately (the default) or wait for Space, Return or a logo click. In confirmation mode, releasing the opening shortcut closes without confirming the preview. In press mode, press the shortcut once to open and again to close without changing playback; Return or click confirms a station. Tab browses forward; The backtick key (above Tab) and Shift-Tab browse backward. Previous/next keys are customizable in VI radio settings. Space or Return confirms playback. Navigation hints appear after 5 seconds without key presses, clicks or scrolling, and hide again on those actions. Moving the mouse does not reset the timer. Caps Lock can still be assigned as a custom navigation key and retains its normal macOS behavior. Station logos preload around the current selection and stay cached between openings. You can also open the selector from **View** or the **VI radio** card in Themes.
 
 The shortcut uses native macOS hotkey registration and requires no Accessibility or Input Monitoring permission. If another app or macOS has reserved the shortcut, choose another combination; the View and Themes entries remain available. The overlay opens on the screen containing the pointer and can join Spaces and full-screen apps where macOS permits it; protected system screens are excluded.
+
+## Self Radio
+
+Self Radio displays music playing in other apps using real system-audio activity. Enable **Settings → General → Self Radio**: external music stops the radio stream and selects Self Radio; starting a station first pauses other music. Music/Spotify can supply song information and artwork, with the original black Self Radio logo as fallback. System audio detection requires macOS 14.2+ and System Audio Recording permission; Music/Spotify may also request Automation access. A private macOS media-control fallback helps with browsers but cannot control every application. See [Self Radio implementation and limitations](SELF_RADIO.md).
 
 ## Build and run
 
@@ -81,3 +89,9 @@ contribute different gorgeous themes or any other things, and help turn it into 
 Radio Dial uses Sparkle for update checks. The General settings option controls automatic download and installation; automatic checks remain enabled when it is off. Before distributing the first Sparkle-enabled version, publish `appcast.xml` on the repository's `main` branch. Existing installations need to install that version once before they can receive Sparkle updates.
 
 For every later release, increment both `CFBundleShortVersionString` and the numeric `CFBundleVersion` in `Info.plist`. Write release notes as an HTML fragment, then run `./prepare-update.sh path/to/notes.html`. Upload the generated ZIP to the matching GitHub release and publish the generated `appcast.xml` to `main` only after the ZIP is available. The Sparkle signing key is stored in the macOS Keychain under account `org.radiodial.macos`; preserve a secure backup of this private key. Never commit it to the repository. Build and test the update from an older installed Sparkle-enabled release before announcing it.
+
+### VI radio backdrop
+
+VI radio uses a live, full-window dark HUD material behind a separate black dimming layer. Settings → VI radio includes independent Blur strength and Darkness sliders, a live preview, and Reset background. Both values are remembered across launches; the defaults are 100% material strength and 0% darkness. Blur strength blends the native material with the desktop rather than setting a Gaussian radius. Station artwork and text stay in an independent, sharp foreground layer. Opening and closing use a 220 ms transition; Reduce Motion disables the foreground scale effect.
+
+No screen capture, screen-recording permission or continuous screenshot loop is used. The blur strength belongs to macOS's native material and cannot be set to an exact Gaussian radius. Its appearance can vary with the macOS version and accessibility settings; Reduce Transparency may make the background opaque. This is the permission-free native implementation, not a guaranteed 30–50-point Gaussian defocus.
