@@ -120,3 +120,9 @@ python3.12 -m venv "$HOME/Library/Application Support/Radio Dial/Recognition"
 Radio Dial uses Sparkle for update checks. The General settings option controls automatic download and installation; automatic checks remain enabled when it is off. Before distributing the first Sparkle-enabled version, publish `appcast.xml` on the repository's `main` branch. Existing installations need to install that version once before they can receive Sparkle updates.
 
 For every later release, increment both `CFBundleShortVersionString` and the numeric `CFBundleVersion` in `Info.plist`. Write release notes as an HTML fragment, then run `./prepare-update.sh path/to/notes.html`. Upload the generated ZIP to the matching GitHub release and publish the generated `appcast.xml` to `main` only after the ZIP is available. The Sparkle signing key is stored in the macOS Keychain under account `org.radiodial.macos`; preserve a secure backup of this private key. Never commit it to the repository. Build and test the update from an older installed Sparkle-enabled release before announcing it.
+
+## License
+
+Radio DIAL's original source code is available under the [MIT License](LICENSE).
+
+The bundled [Barlow](Resources/Barlow-OFL.txt) and [Punctum](Resources/Punctum-OFL.txt) fonts are distributed under their respective SIL Open Font Licenses. Third-party media and branding are subject to their respective rights.
