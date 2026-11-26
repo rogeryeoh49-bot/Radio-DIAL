@@ -6,6 +6,22 @@
         <description>Radio Dial releases</description>
         <language>en</language>
         <item>
+            <title>2.2.1</title>
+            <pubDate>Thu, 26 Nov 2026 12:49:49 +0800</pubDate>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>2.2.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Radio Dial 2.2.1</h2>
+<ul>
+<li>Self Radio follows audio from other apps and can hand playback back to Apple Music or Spotify. Supported players can also supply track details and artwork. System audio detection requires macOS 14.2 or later.</li>
+<li>A guided setup walks through the player, VI Radio shortcuts and optional permissions. Replay it from Settings.</li>
+<li>Cover Flow improves station-logo framing, artwork caching and transitions when playback changes.</li>
+<li>Radio Dial handles station announcements and incomplete track metadata more reliably, and checks song and artist matches before using catalog artwork.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v2.2.1/Radio-Dial-macOS.zip" length="6241843" type="application/octet-stream" sparkle:edSignature="u4UMISPjaluoATPQUFZecRcLJU7irom57mpkNCH3gKOc1fUkTNcDpS7rnsf2rb1L4KR1nmxM86OdFBC2ihuTAw=="/>
+        </item>
+        <item>
             <title>2.2.0</title>
             <pubDate>Thu, 19 Nov 2026 22:35:23 +0800</pubDate>
             <sparkle:version>8</sparkle:version>
@@ -24,16 +40,6 @@
             <description><![CDATA[<h2>Radio Dial 2.1.2</h2><ul><li>Sharper Apple Music artwork, now requested at up to 1200 × 1200 pixels.</li><li>Higher-resolution artwork in Cover Flow and macOS Now Playing controls.</li></ul>
 ]]></description>
             <enclosure url="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v2.1.2/Radio-Dial-macOS.zip" length="3843398" type="application/octet-stream" sparkle:edSignature="V4cxltZFtoQkiWAATvx3ue7nbRkYsN6snHPO7stNl3F5AaCZfP2MNecdXazbdYhwcdCuYhONvbbuhixpGth/Aw=="/>
-        </item>
-        <item>
-            <title>2.1.1</title>
-            <pubDate>Thu, 19 Nov 2026 17:18:13 +0800</pubDate>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>2.1.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Radio Dial 2.1.1</h2><ul><li>Added Sparkle update checks with release notes, reminders and version skipping.</li><li>Added an option in General settings to automatically download and install updates.</li></ul>
-]]></description>
-            <enclosure url="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v2.1.1/Radio-Dial-macOS.zip" length="3842985" type="application/octet-stream" sparkle:edSignature="1vLw+2J1soj8ryj2WnmZdbpbU1usOcvxZpxjR9NlKhgqxsmeU2vS6X2ekT3l8/9cf9/oV+zaB7pPYmb1BX9ADg=="/>
         </item>
     </channel>
 </rss>
