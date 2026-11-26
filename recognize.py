@@ -20,7 +20,13 @@ async def main():
         return
     track = response.get("track") or {}
     if track.get("title"):
-        print(json.dumps({"title": track["title"], "artist": track.get("subtitle") or ""}))
+        images = track.get("images") or {}
+        print(json.dumps({
+            "title": track["title"],
+            "artist": track.get("subtitle") or "",
+            "artwork": images.get("coverarthq") or images.get("coverart"),
+            "originalArtwork": images.get("coverart"),
+        }))
 
 
 if __name__ == "__main__":

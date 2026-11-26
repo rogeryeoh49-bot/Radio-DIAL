@@ -719,7 +719,7 @@ struct RadioDialSettings: View {
                         if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
                     } catch { loginMessage = error.localizedDescription }
                 }
-            Toggle("Identify music automatically when stations provide no track title", isOn: $dial.prefs.automaticRecognition)
+            Toggle("Identify music automatically when track details or artwork are missing", isOn: $dial.prefs.automaticRecognition)
             Text("Identification sends a short sample of the playing stream to the recognition service.").font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Balance")

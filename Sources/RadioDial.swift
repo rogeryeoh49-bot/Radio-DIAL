@@ -778,16 +778,22 @@ struct Artwork: View {
     var url: URL?
     var icon: String
     var palette: DialPalette
+    @State private var loaded: (url: URL, image: CGImage)?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if let image = phase.image { image.resizable().aspectRatio(contentMode: .fit) }
-            else {
+        Group {
+            if let url, let image = CoverFlowArtwork.preparedImage(for: url) ?? (loaded?.url == url ? loaded?.image : nil) {
+                Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+            } else {
                 ZStack {
                     LinearGradient(colors: [palette.panel, palette.inset], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: icon).font(.system(size: 30, weight: .light)).foregroundStyle(palette.accent)
                 }
             }
+        }
+        .task(id: url) {
+            guard let url, let image = await CoverFlowArtwork.load(url), !Task.isCancelled else { return }
+            loaded = (url, image)
         }
         .clipShape(.rect(cornerRadius: 8))
         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(palette.line) }
@@ -1171,6 +1177,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate, NSWindowDeleg
         dial.selfRadio.shutdown()
         viPreferences?.cancel()
         dial.stop()
+        dial.flushPendingPreferences()
         nowPlaying?.tearDown()
         dial.audio.afterRecordingsSaved { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater

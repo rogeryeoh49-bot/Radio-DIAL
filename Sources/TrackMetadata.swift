@@ -9,14 +9,25 @@ enum TrackMetadataQuality {
         if let station, text.compare(station, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame { return .promotional }
         let promo = #"(?i)(?:https?://|www\.|#\s*1\s+(?:hit|music|radio)|\b(?:hit music station|radio station|advertisement|commercial break|station identification|all rights reserved)\b)"#
         if text.range(of: promo, options: .regularExpression) != nil { return .promotional }
-        for separator in [" – ", " — ", " - "] {
-            if let range = text.range(of: separator) {
-                let first = text[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
-                let second = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !first.isEmpty && !second.isEmpty { return .song }
-            }
+        let parts = TrackDisplayInfo.parse(text)
+        if !parts.artist.isEmpty, !isMissing(parts.artist), !isMissing(parts.title),
+           parts.artist.compare(parts.title, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame {
+            return .song
         }
         return .ambiguous
+    }
+
+    static func isMissing(_ value: String?) -> Bool {
+        guard let value else { return true }
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["", "-", "–", "—", "?", "unknown", "unknown title", "unknown song", "unknown artist", "untitled", "n/a"].contains(text)
+    }
+
+    static func availableLabel(_ text: String) -> String {
+        let parts = TrackDisplayInfo.parse(text)
+        if isMissing(parts.title) || parts.title.caseInsensitiveCompare(parts.artist) == .orderedSame { return parts.artist }
+        if isMissing(parts.artist) { return parts.title }
+        return text
     }
 }
 

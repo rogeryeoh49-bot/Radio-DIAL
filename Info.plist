@@ -2,24 +2,46 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key><string>en</string>
-    <key>CFBundleExecutable</key><string>Radio Dial</string>
-    <key>CFBundleIdentifier</key><string>org.radiodial.macos</string>
-    <key>CFBundleDisplayName</key><string>Radio Dial</string>
-    <key>CFBundleName</key><string>Radio Dial</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>2.2.0</string>
-    <key>CFBundleVersion</key><string>8</string>
-    <key>CFBundleIconFile</key><string>RadioDial</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
-    <key>SUFeedURL</key><string>https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/appcast.xml</string>
-    <key>SUPublicEDKey</key><string>b53wHfAVwM04xbTezTzU97KStubwhCtMftmjEHm0doE=</string>
-    <key>SUEnableAutomaticChecks</key><true/>
-    <key>SUAutomaticallyUpdate</key><false/>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>NSAudioCaptureUsageDescription</key><string>Self Radio detects sound from other apps on your current output device. Audio samples are measured locally and immediately discarded, never recorded or sent anywhere. Microphone input is not used.</string>
-    <key>NSAppleEventsUsageDescription</key><string>Self Radio can resume or pause playback and read the current song and album artwork in Music and Spotify.</string>
-    <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Radio Dial</string>
+	<key>CFBundleExecutable</key>
+	<string>Radio Dial</string>
+	<key>CFBundleIconFile</key>
+	<string>RadioDial</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.radiodial.macos</string>
+	<key>CFBundleName</key>
+	<string>Radio Dial</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>2.2.1</string>
+	<key>CFBundleVersion</key>
+	<string>9</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.music</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Self Radio can resume or pause playback and read the current song and album artwork in Music and Spotify.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Self Radio detects sound from other apps on your current output device. Audio samples are measured locally and immediately discarded, never recorded or sent anywhere. Microphone input is not used.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>b53wHfAVwM04xbTezTzU97KStubwhCtMftmjEHm0doE=</string>
 </dict>
 </plist>

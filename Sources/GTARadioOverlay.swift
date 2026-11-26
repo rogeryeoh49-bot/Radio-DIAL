@@ -690,13 +690,7 @@ private struct VILogo: View {
     var body: some View {
         ZStack {
             if let image {
-                stationArtworkMatte
-                if let edges = VILogoEdgeColors.forLandscapeImage(image) {
-                    VStack(spacing: 0) {
-                        edges.top.map { Color(cgColor: $0) } ?? stationArtworkMatte
-                        edges.bottom.map { Color(cgColor: $0) } ?? stationArtworkMatte
-                    }
-                }
+                StationArtworkBacking(edges: StationArtworkEdgeColors.forLandscapeImage(image))
                 Image(decorative: image, scale: 1)
                     .allowedDynamicRange(.standard)
                     .resizable()
@@ -710,53 +704,6 @@ private struct VILogo: View {
             }
         }
         .clipped()
-    }
-}
-
-@MainActor
-private final class VILogoEdgeColors {
-    private static let cache: NSCache<CGImage, VILogoEdgeColors> = {
-        let cache = NSCache<CGImage, VILogoEdgeColors>()
-        cache.countLimit = 64
-        cache.totalCostLimit = 24 * 1024 * 1024
-        return cache
-    }()
-
-    let top: CGColor?
-    let bottom: CGColor?
-
-    private init(image: CGImage) {
-        top = Self.sampleRow(in: image, at: 0)
-        bottom = Self.sampleRow(in: image, at: image.height - 1)
-    }
-
-    static func forLandscapeImage(_ image: CGImage) -> VILogoEdgeColors? {
-        guard image.width > image.height else { return nil }
-        if let cached = cache.object(forKey: image) { return cached }
-        let colors = VILogoEdgeColors(image: image)
-        cache.setObject(colors, forKey: image, cost: image.bytesPerRow * image.height)
-        return colors
-    }
-
-    private static func sampleRow(in image: CGImage, at y: Int) -> CGColor? {
-        let sampleCount = min(image.width, 32)
-        guard let row = image.cropping(to: CGRect(x: 0, y: y, width: image.width, height: 1)),
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: sampleCount, height: 1, bitsPerComponent: 8,
-                                      bytesPerRow: sampleCount * 4, space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
-                                          CGBitmapInfo.byteOrder32Big.rawValue),
-              let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
-        context.interpolationQuality = .none
-        context.draw(row, in: CGRect(x: 0, y: 0, width: sampleCount, height: 1))
-        let opaqueSamples = (0..<sampleCount).map { $0 * 4 }.filter { pixels[$0 + 3] >= 240 }
-        guard opaqueSamples.count > sampleCount / 2 else { return nil }
-        // Use the median so lettering or a few stray edge pixels do not tint the fill.
-        let rgb = (0..<3).map { channel in
-            let values = opaqueSamples.map { CGFloat(pixels[$0 + channel]) / CGFloat(pixels[$0 + 3]) }.sorted()
-            return values[values.count / 2]
-        }
-        return CGColor(colorSpace: space, components: rgb + [1])
     }
 }
 

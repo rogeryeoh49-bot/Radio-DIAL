@@ -210,6 +210,67 @@ enum Catalog {
         return url
     }
 
+    static let artworkMaxPixels = 1200
+    static let artworkMinimumHD = 600
+
+    static func artworkURLs(for url: URL) -> [URL] {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = components.host?.lowercased() else { return [url] }
+        if host.hasSuffix(".mzstatic.com"),
+           let size = components.percentEncodedPath.range(of: #"/[0-9]+x[0-9]+(?=[a-zA-Z0-9_-]*\.[a-zA-Z]+$)"#, options: .regularExpression) {
+            let path = components.percentEncodedPath
+            let dimensions = path[size].dropFirst().split(separator: "x").compactMap { Int($0) }
+            let original = dimensions.max() ?? 0
+            var variants: [URL] = []
+            for pixels in [artworkMaxPixels, artworkMinimumHD] where pixels > original {
+                components.percentEncodedPath = path.replacingCharacters(in: size, with: "/\(pixels)x\(pixels)")
+                if let variant = components.url { variants.append(variant) }
+            }
+            return variants + [url]
+        }
+        if host == "i.iheart.com", components.path.hasPrefix("/v3/re/"),
+           let query = components.queryItems,
+           query.contains(where: { $0.name == "ops" && $0.value?.contains("contain(") == true }) {
+            let originalQuery = query.filter { $0.name != "ops" && $0.name != "quality" }
+            components.queryItems = originalQuery.isEmpty ? nil : originalQuery
+            if let original = components.url { return [original, url] }
+        }
+        if host == "www.hot97.com", components.path.hasPrefix("/wp-content/uploads/"),
+           let query = components.queryItems, query.contains(where: { $0.name == "w" }) {
+            let originalQuery = query.filter { $0.name != "w" }
+            components.queryItems = originalQuery.isEmpty ? nil : originalQuery
+            if let original = components.url { return [original, url] }
+        }
+        if host == "zeno.fm", components.path.hasPrefix("/_ipx/"),
+           let filename = components.path.split(separator: "/").last {
+            var encoded = String(filename.split(separator: ".").first ?? "")
+                .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+            if let data = Data(base64Encoded: encoded), let address = String(data: data, encoding: .utf8),
+               let original = webURL(address), original.scheme == "https", original.host == "proxy.zeno.fm",
+               original.path.hasPrefix("/content/stations/"), original.path.hasSuffix("/image") || original.path.hasSuffix("/image/") {
+                return [original, url]
+            }
+        }
+        return [url]
+    }
+
+    static func bestArtwork(from url: URL) async -> CGImage? {
+        var best: CGImage?
+        for candidate in artworkURLs(for: url) {
+            if Task.isCancelled { return nil }
+            guard let image = try? await artworkThumbnail(from: candidate, maxPixels: artworkMaxPixels,
+                                                          cachePolicy: .returnCacheDataElseLoad) else { continue }
+            if artworkPixels(image) > artworkPixels(best) { best = image }
+            if artworkPixels(best) >= artworkMaxPixels { break }
+        }
+        return Task.isCancelled ? nil : best
+    }
+
+    static func artworkPixels(_ image: CGImage?) -> Int {
+        image.map { max($0.width, $0.height) } ?? 0
+    }
+
     static func artworkThumbnail(from url: URL, maxPixels: Int = 512,
                                  cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy) async throws -> CGImage? {
         let data: Data
@@ -236,51 +297,73 @@ enum Catalog {
 
     struct SongMatch {
         var artwork: URL?
+        var originalArtwork: URL?
         var appleMusicURL: URL?
         var title: String?
         var artist: String?
     }
 
     static func songMatch(_ track: String) async throws -> SongMatch? {
+        let data = try await request(url("https://itunes.apple.com/search", ["term": track, "entity": "song", "limit": "25"]))
+        return try songMatch(in: data, for: track)
+    }
+
+    static func songMatch(in data: Data, for track: String) throws -> SongMatch? {
         struct Result: Decodable {
             struct Track: Decodable {
                 var trackName, artistName, artworkUrl100, trackViewUrl: String?
             }
             var results: [Track]
         }
-        func normalized(_ text: String?) -> String {
+        let query = SongQuery(track)
+        let results = try JSONDecoder().decode(Result.self, from: data).results
+        let exact = results.filter { query.matches(title: $0.trackName, artist: $0.artistName, exact: true) }
+        let relaxed = results.filter { query.matches(title: $0.trackName, artist: $0.artistName) }
+        let match = exact.first { webURL($0.artworkUrl100) != nil }
+            ?? relaxed.first { webURL($0.artworkUrl100) != nil }
+            ?? exact.first ?? relaxed.first
+        guard let match else { return nil }
+        let originalArtwork = webURL(match.artworkUrl100)
+        let artwork = originalArtwork.flatMap { artworkURLs(for: $0).first }
+        return SongMatch(artwork: artwork, originalArtwork: originalArtwork, appleMusicURL: webURL(match.trackViewUrl), title: match.trackName, artist: match.artistName)
+    }
+
+    struct SongQuery {
+        private let first: String
+        private let second: String
+
+        init(_ track: String) {
+            let separator = [" – ", " — ", " - "].compactMap { track.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
+            first = Self.normalized(separator.map { String(track[..<$0.lowerBound]) } ?? track)
+            second = Self.normalized(separator.map { String(track[$0.upperBound...]) })
+        }
+
+        func matches(title: String?, artist: String?, exact: Bool = false) -> Bool {
+            let title = Self.normalized(title)
+            guard !first.isEmpty, !title.isEmpty else { return false }
+            if second.isEmpty { return title == first }
+            let normalizedArtist = Self.normalized(artist)
+            let credits = artist?.replacingOccurrences(
+                of: #"(?i)\s+(?:feat\.?|ft\.?|featuring|and|with)\s+|\s+&\s+|\s*[,;]\s*"#,
+                with: "\n", options: .regularExpression
+            ).components(separatedBy: .newlines).map(Self.normalized) ?? []
+            func sameSong(_ expectedTitle: String, _ expectedArtist: String) -> Bool {
+                if exact { return title == expectedTitle && normalizedArtist == expectedArtist }
+                let sameTitle = title == expectedTitle || Self.baseTitle(title) == Self.baseTitle(expectedTitle)
+                return sameTitle && (normalizedArtist == expectedArtist || credits.contains(expectedArtist))
+            }
+            return sameSong(first, second) || sameSong(second, first)
+        }
+
+        private static func normalized(_ text: String?) -> String {
             (text ?? "").folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
                 .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
         }
-        func credits(_ name: String?, include artist: String) -> Bool {
-            guard let name, !artist.isEmpty else { return false }
-            if normalized(name) == artist { return true }
-            let credits = name.replacingOccurrences(
-                of: #"(?i)\s+(?:feat\.?|ft\.?|featuring|and|with)\s+|\s+&\s+|\s*[,;]\s*"#,
-                with: "\n", options: .regularExpression
-            )
-            return credits.components(separatedBy: .newlines).contains { normalized($0) == artist }
+
+        private static func baseTitle(_ value: String) -> String {
+            value.replacingOccurrences(of: #"\s+(?:radio (?:edit|mix|version)|(?:[0-9]{4} )?remaster(?:ed)?(?: [0-9]{4})?)$"#,
+                                       with: "", options: .regularExpression)
         }
-        let separator = [" – ", " — ", " - "].compactMap { track.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
-        let first = normalized(separator.map { String(track[..<$0.lowerBound]) } ?? track)
-        let second = normalized(separator.map { String(track[$0.upperBound...]) })
-        guard !first.isEmpty else { return nil }
-        let data = try await request(url("https://itunes.apple.com/search", ["term": track, "entity": "song", "limit": "8"]))
-        let results = try JSONDecoder().decode(Result.self, from: data).results
-        let match = results.first { result in
-            let title = normalized(result.trackName)
-            if second.isEmpty { return title == first }
-            return (title == second && credits(result.artistName, include: first)) ||
-                (title == first && credits(result.artistName, include: second))
-        }
-        guard let match else { return nil }
-        var artwork = webURL(match.artworkUrl100)
-        if let original = artwork, let host = original.host, host.hasSuffix(".mzstatic.com"),
-           var components = URLComponents(url: original, resolvingAgainstBaseURL: false) {
-            components.path = components.path.replacingOccurrences(of: #"/100x100(?=[a-z]*\.[a-z]+$)"#, with: "/1200x1200", options: .regularExpression)
-            artwork = components.url ?? original
-        }
-        return SongMatch(artwork: artwork, appleMusicURL: webURL(match.trackViewUrl), title: match.trackName, artist: match.artistName)
     }
 
     struct Lyric: Decodable {

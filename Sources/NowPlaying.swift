@@ -100,7 +100,7 @@ final class NowPlaying {
         guard let url else { return }
 
         artworkLoad = Task { [weak self] in
-            guard let image = try? await Catalog.artworkThumbnail(from: url, maxPixels: url.host?.hasSuffix(".mzstatic.com") == true ? 1200 : 512),
+            guard let image = await CoverFlowArtwork.load(url),
                   !Task.isCancelled, let self, self.dial?.art == url,
                   self.dial?.playback != .stopped else { return }
             let size = NSSize(width: image.width, height: image.height)

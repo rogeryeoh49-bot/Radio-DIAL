@@ -3,6 +3,7 @@ import Foundation
 struct PlaylistMetadata: Equatable {
     let name: String
     let artwork: URL?
+    var artistOnly = false
 
     @MainActor
     static func watch(_ source: URL, proxy: String, report: (PlaylistMetadata) -> Void) async {
@@ -49,26 +50,31 @@ struct PlaylistMetadata: Equatable {
     static func current(in lines: [String]) -> PlaylistMetadata? {
         let segments = lines.filter { $0.hasPrefix("#EXTINF:") }
         // The decoder starts a live playlist three segments back.
-        guard let segment = segments.suffix(3).first, let title = field("title", in: segment) else { return nil }
-        let artist = field("artist", in: segment)
-        let name = [artist, title].compactMap { $0 }.joined(separator: " – ")
-        let payload = field("url", in: segment) ?? ""
-        let artwork = field("amgArtworkURL", in: payload, boundary: #"\b"#).flatMap(Catalog.webURL)
-        if artist == nil, artwork == nil, let spot = field("song_spot", in: payload, boundary: #"\b"#), spot != "M" {
-            return PlaylistMetadata(name: "", artwork: nil)
-        }
-        return PlaylistMetadata(name: name, artwork: artwork)
+        guard let segment = segments.suffix(3).first else { return nil }
+        let attributes = String(segment.dropFirst("#EXTINF:".count))
+        let title = field("title", in: attributes)
+        let artist = field("artist", in: attributes)
+        let payload = field("url", in: attributes) ?? ""
+        return track(title: title, artist: artist, payload: payload)
     }
 
     static func icyTrack(_ text: String) -> PlaylistMetadata? {
-        guard text.lowercased().hasPrefix("title=\""),
-              let title = field("title", in: text) else { return nil }
-        let artist = field("artist", in: text)
-        let artwork = field("amgArtworkURL", in: text, boundary: #"\b"#).flatMap(Catalog.webURL)
-        if artist == nil, artwork == nil, let spot = field("song_spot", in: text, boundary: #"\b"#), spot != "M" {
+        let folded = text.lowercased()
+        guard folded.hasPrefix("title=\"") || folded.hasPrefix("artist=\"") else { return nil }
+        let payload = field("url", in: text) ?? text
+        return track(title: field("title", in: text), artist: field("artist", in: text), payload: payload)
+    }
+
+    private static func track(title: String?, artist: String?, payload: String) -> PlaylistMetadata? {
+        let title = TrackMetadataQuality.isMissing(title) ? nil : title
+        let artist = TrackMetadataQuality.isMissing(artist) ? nil : artist
+        let artwork = field("amgArtworkURL", in: payload, boundary: #"\b"#).flatMap(Catalog.webURL)
+        if let spot = field("song_spot", in: payload, boundary: #"\b"#), spot != "M", artist == nil, artwork == nil {
             return PlaylistMetadata(name: "", artwork: nil)
         }
-        return PlaylistMetadata(name: [artist, title].compactMap { $0 }.joined(separator: " – "), artwork: artwork)
+        guard title != nil || artist != nil else { return nil }
+        return PlaylistMetadata(name: [artist, title].compactMap { $0 }.joined(separator: " – "),
+                                artwork: artwork, artistOnly: title == nil)
     }
 
     private static func field(_ key: String, in text: String, boundary: String = #"(?:^|,)\s*"#) -> String? {

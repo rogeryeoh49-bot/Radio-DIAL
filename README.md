@@ -15,6 +15,14 @@ Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide
 
 **ALL FREE**. It is impossible to find a pure radio player that doesn't ask you to spend money. At least, I've never found one on either iOS or macOS. Yes, so I made a pure radio player to give you access to completely free radio worldwide. Full of features to fit any needs.
 
+## What’s new in v2.2.1
+
+- **Self Radio** can follow audio from other apps and hand playback back to supported players.
+- **Interactive setup** introduces the player, VI Radio shortcuts and optional permissions. Replay it from Settings.
+- **Cover Flow and track metadata** handle more artwork formats and improve catalog matching.
+
+[Read the full 2.2.1 release notes](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/tag/v2.2.1)
+
 ## What’s new in v2.2.0
 
 - **VI radio**, a GTA VI–inspired global radio selector: hold **Option + Q**, browse a sliding row of station logos, and switch stations from another app.
@@ -66,7 +74,7 @@ In **Settings → VI radio**, enable or disable the global shortcut, record a cu
 
 #### Navigation and artwork
 
-Tab browses forward. The backtick key (above Tab) and Shift-Tab browse backward. Previous/next keys are customizable in VI radio settings. Space or Return confirms playback. In v2.2.0, navigation hints appear after 8 seconds without key presses, clicks or scrolling. The wait is 5 seconds on `main`. The hints hide again on those actions. Moving the mouse does not reset the timer. Caps Lock can still be assigned as a custom navigation key and retains its normal macOS behavior. Station logos preload around the current selection and stay cached between openings. You can also open the selector from **View** or the **VI radio** card in Themes.
+Tab browses forward. The backtick key (above Tab) and Shift-Tab browse backward. Previous/next keys are customizable in VI radio settings. Space or Return confirms playback. Navigation hints appear after 5 seconds without key presses, clicks or scrolling. The hints hide again on those actions. Moving the mouse does not reset the timer. Caps Lock can still be assigned as a custom navigation key and retains its normal macOS behavior. Station logos preload around the current selection and stay cached between openings. You can also open the selector from **View** or the **VI radio** card in Themes.
 
 #### macOS compatibility
 

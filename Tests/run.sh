@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 task_tmp=$(mktemp -d "${TMPDIR:-/tmp}/radiodial-tests.XXXXXXXX")
 trap 'rm -rf "$task_tmp"' EXIT
-swiftc Sources/TrackMetadata.swift Tests/TrackMetadataTests.swift -o "$task_tmp/metadata"
+swiftc Sources/TrackMetadata.swift Sources/PlaylistMetadata.swift Sources/Catalog.swift Sources/USStationArtwork.swift Tests/TrackMetadataTests.swift -o "$task_tmp/metadata"
 "$task_tmp/metadata"
 swiftc Sources/ReleaseVersion.swift Tests/ReleaseVersionTests.swift -o "$task_tmp/version"
 "$task_tmp/version"

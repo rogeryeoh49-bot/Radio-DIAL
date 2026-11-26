@@ -22,7 +22,7 @@ Supported metadata adapters are Apple Music and Spotify. A playing state and non
 
 Music artwork comes from the current track's `raw data` artwork property. Spotify artwork uses the artwork URL returned by Spotify. Availability varies with the player, track and permissions. Artwork is cached separately from audio; only image files are temporarily cached. Silence clears displayed song information and restores the fixed station logo.
 
-The supplied GTA V SVG is preserved as `Resources/SelfRadio-original.svg`. Its actual cubic-path bounds are approximately (-0.000004, -0.0000004)–(915.286275, 915.725703), matching the original viewBox to rounding precision. `SelfRadio-square.svg` centers that complete artwork on a 915.72569-square pure black canvas without cropping or stretching. The bundled 2048×2048 PNG is included both as a resource URL and in a native asset catalog compiled by `actool`. Original logo: [user-specified GTA Wiki SVG](https://static.wikia.nocookie.net/gtawiki/images/1/10/SelfRadio-GTAV-Logo.svg/revision/latest?cb=20160917180231). GTA/Self Radio artwork belongs to its original owners; it is not Radio Dial's application icon.
+The supplied GTA V SVG is preserved as `Resources/SelfRadio-original.svg`. Its actual cubic-path bounds are approximately (-0.000004, -0.0000004)–(915.286275, 915.725703), matching the original viewBox to rounding precision. `SelfRadio-square.svg` centers that complete artwork on a 915.72569-square pure black canvas without cropping or stretching. The bundled 2048×2048 PNG is packaged as a standalone resource so the artwork loader can access it by URL. Original logo: [user-specified GTA Wiki SVG](https://static.wikia.nocookie.net/gtawiki/images/1/10/SelfRadio-GTAV-Logo.svg/revision/latest?cb=20160917180231). GTA/Self Radio artwork belongs to its original owners; it is not Radio Dial's application icon.
 
 ## Components
 
@@ -33,7 +33,7 @@ The supplied GTA V SVG is preserved as `Resources/SelfRadio-original.svg`. Its a
 - `SelfRadio.swift`: virtual station activity, metadata lifecycle and image-only caching.
 - `DialState.swift`: shared source/playback handoff and prevention of recording or Shazam of Self Radio.
 - `Catalog.swift`, `CoverFlow.swift`, `GTARadioOverlay.swift`, `RadioDial.swift`, `NowPlaying.swift`, `Panels.swift`, `RadioReceiver.swift`: existing station UI integration and settings. Self Radio does not publish another application's track as Radio Dial's macOS Now Playing session.
-- `Info.plist`, `build.sh`, `Resources/Assets.xcassets`: privacy descriptions and packaged artwork.
+- `Info.plist`, `build.sh`, `Resources/SelfRadio.png`: privacy descriptions and packaged artwork.
 - `Tests/SystemAudioActivityTests.swift`, `Tests/SelfRadioArtworkTests.swift`: silence, transient, hysteresis, stop debounce, virtual-source serialization, image dimensions and black-corner checks.
 
 ## Verification

@@ -74,7 +74,11 @@ final class DialState: ObservableObject {
         return ordered.filter { $0.isStation && seen.insert($0.id).inserted }
     }
 
-    @Published var prefs: Preferences { didSet { persist() } }
+    @Published var prefs: Preferences {
+        didSet {
+            if !deferringPreferenceSave { persist() }
+        }
+    }
     @Published var source: Source?
     @Published var track = ""
     @Published var art: URL?
@@ -127,9 +131,15 @@ final class DialState: ObservableObject {
     private var retryCount = 0
     private var tick: Timer?
     private var meterTick: Timer?
+    private var deferringPreferenceSave = false
+    private var preferenceSaveTask: Task<Void, Never>?
     private enum TrackOrigin { case none, station, unverifiedStation, recognition }
     private var trackOrigin: TrackOrigin = .none
+    private var lastStationMetadata: PlaylistMetadata?
+    private var needsSongArtwork = false
+    private var trackArtworkPixels = 0
     private var nextRecognition = Date.distantPast
+    private var lastAutomaticRecognition = Date.distantPast
     private var scheduledStop: Date?
     private var audioStart: TimeInterval?
     private var pauseAfterSeek = false
@@ -164,9 +174,8 @@ final class DialState: ObservableObject {
         audio.onStarted = { [weak self] outputTime in self?.started(outputTime: outputTime) }
         audio.onFailure = { [weak self] error in self?.failed(error) }
         audio.onEnded = { [weak self] in self?.stop(message: "Playback finished.") }
-        audio.onMetadata = { [weak self] title, artwork in
-            let track = PlaylistMetadata.icyTrack(title)
-            self?.setTrack(track?.name ?? title, artwork: track?.artwork ?? artwork)
+        audio.onMetadata = { [weak self] metadata in
+            self?.receiveStationTrack(metadata)
         }
         audio.onRecordingInterrupted = { [weak self] message in
             guard let self else { return }
@@ -224,7 +233,25 @@ final class DialState: ObservableObject {
         if prefs.resumeOnLaunch, let source { play(source) }
     }
 
+    private func updateAudioPreferences(_ updated: Preferences) {
+        deferringPreferenceSave = true
+        prefs = updated
+        deferringPreferenceSave = false
+        preferenceSaveTask?.cancel()
+        preferenceSaveTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.persist()
+        }
+    }
+
+    func flushPendingPreferences() {
+        if preferenceSaveTask != nil { persist() }
+    }
+
     private func persist() {
+        preferenceSaveTask?.cancel()
+        preferenceSaveTask = nil
         do {
             try FileManager.default.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(prefs).write(to: settingsURL, options: .atomic)
@@ -398,6 +425,9 @@ final class DialState: ObservableObject {
         trackTask?.cancel()
         track = ""
         trackOrigin = .none
+        lastStationMetadata = nil
+        needsSongArtwork = false
+        trackArtworkPixels = 0
         appleMusicURL = nil
         matchedSong = nil
         lyrics = nil
@@ -413,6 +443,7 @@ final class DialState: ObservableObject {
         healthySince = nil
         resumedAt = nil
         nextRecognition = Date().addingTimeInterval(25)
+        lastAutomaticRecognition = .distantPast
         do {
             try audio.play(item, seek: position, profile: prefs.profile, proxy: prefs.proxy, tuningEffect: tuningEffect)
             playback = .connecting
@@ -485,6 +516,7 @@ final class DialState: ObservableObject {
         pausedWhileConnecting = false
         reconnectTask?.cancel()
         recognitionTask?.cancel()
+        trackTask?.cancel()
         finding = false
         stopRecording()
         audio.halt()
@@ -534,12 +566,25 @@ final class DialState: ObservableObject {
         }
     }
 
-    func setVolume(_ value: Double) { prefs.volume = max(0, min(100, value)); applyVolume() }
+    func setVolume(_ value: Double) {
+        let volume = max(0, min(100, value))
+        guard prefs.volume != volume else { return }
+        var updated = prefs
+        updated.volume = volume
+        updateAudioPreferences(updated)
+        applyVolume()
+    }
     private var muted = false
     func toggleMute() { muted.toggle(); applyVolume(); status = muted ? "Muted" : "Unmuted" }
     private func applyVolume() { audio.setVolume(muted ? 0 : Float(prefs.volume / 100)) }
 
-    func setBalance(_ value: Double) { prefs.balance = value; audio.setBalance(Float(value / 100)) }
+    func setBalance(_ value: Double) {
+        guard prefs.balance != value else { return }
+        var updated = prefs
+        updated.balance = value
+        updateAudioPreferences(updated)
+        audio.setBalance(Float(value / 100))
+    }
 
     static let presets: [String: [Double]] = [
         "Flat": [0, 0, 0, 0, 0], "Bass Boost": [8, 5, 0, 0, 0], "Treble Boost": [0, 0, 1, 4, 8],
@@ -595,7 +640,7 @@ final class DialState: ObservableObject {
             updated.eq[index] = value
         }
         updated.preset = "Custom"
-        prefs = updated
+        updateAudioPreferences(updated)
         audio.setEQ(updated.eq)
     }
 
@@ -675,57 +720,97 @@ final class DialState: ObservableObject {
         }
     }
 
-    private func setTrack(_ title: String, artwork: URL? = nil, origin: TrackOrigin = .station) {
-        let cleaned = title.replacingOccurrences(of: #"\s*-?\s*text=.*$"#, with: "", options: [.regularExpression, .caseInsensitive])
+    private func receiveStationTrack(_ metadata: PlaylistMetadata) {
+        guard metadata != lastStationMetadata else { return }
+        let previous = lastStationMetadata
+        lastStationMetadata = metadata
+        let cleaned = metadata.name.replacingOccurrences(of: #"\s*-?\s*text=.*$"#, with: "", options: [.regularExpression, .caseInsensitive])
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        var resolvedOrigin = origin
-        if origin == .station {
-            switch TrackMetadataQuality.assess(cleaned, station: source?.title) {
-            case .song:
-                resolvedOrigin = .station
-            case .ambiguous:
-                // Keep a recognized song rather than replacing it with an unverified station label.
-                if trackOrigin == .recognition { return }
-                resolvedOrigin = .unverifiedStation
-            case .promotional:
-                // Announcements and slogans are not songs. Keep a recognition result if we have one.
-                if trackOrigin == .recognition { return }
-                if trackOrigin == .station { nextRecognition = min(nextRecognition, Date().addingTimeInterval(3)) }
-                if !track.isEmpty { setTrack("", origin: .recognition) }
-                trackOrigin = .none
-                return
+        switch metadata.artistOnly ? .ambiguous : TrackMetadataQuality.assess(cleaned, station: source?.title) {
+        case .song:
+            setTrack(cleaned, origin: .station)
+            loadTrackDetails(cleaned, artwork: [metadata.artwork], searchCatalog: true)
+        case .ambiguous:
+            if trackOrigin == .recognition, previous?.name == metadata.name { return }
+            let label = metadata.artistOnly ? cleaned : TrackMetadataQuality.availableLabel(cleaned)
+            setTrack(label, origin: .unverifiedStation)
+            if let artwork = metadata.artwork {
+                loadTrackDetails(label, artwork: [artwork], searchCatalog: false)
             }
+            scheduleRecognition(after: 12)
+        case .promotional:
+            // Station IDs can arrive between music updates.
+            if trackOrigin == .recognition { return }
+            if trackOrigin == .station { scheduleRecognition(after: 3) }
+            setTrack("", origin: .none)
         }
-        trackOrigin = cleaned.isEmpty ? .none : resolvedOrigin
-        if cleaned == track {
-            if let artwork { art = artwork }
-            return
-        }
-        track = cleaned
+    }
+
+    private func scheduleRecognition(after delay: TimeInterval) {
+        let soon = max(Date().addingTimeInterval(delay), lastAutomaticRecognition.addingTimeInterval(20))
+        nextRecognition = min(nextRecognition, soon)
+    }
+
+    private func setTrack(_ name: String, origin: TrackOrigin) {
+        trackOrigin = name.isEmpty ? .none : origin
+        guard track != name else { return }
+        track = name
         appleMusicURL = nil
         matchedSong = nil
-        art = artwork ?? source?.stationArtwork
+        art = source?.stationArtwork
+        needsSongArtwork = false
+        trackArtworkPixels = 0
         trackStart = elapsed
         lyrics = nil
         lyricStatus = ""
         lyricTask?.cancel()
         trackTask?.cancel()
-        if cleaned.isEmpty {
+        if name.isEmpty {
             links.clearTrack()
             if let source { links.discord(client: prefs.discordID, title: source.title, detail: "") }
             return
         }
-        audio.splitRecording(cleaned)
-        links.trackChanged(cleaned, prefs: prefs)
-        if let source { links.discord(client: prefs.discordID, title: source.title, detail: cleaned) }
-        trackTask = Task {
-            let match = try? await Catalog.songMatch(cleaned)
-            guard !Task.isCancelled, track == cleaned else { return }
-            appleMusicURL = match?.appleMusicURL
-            matchedSong = match
-            if art == source?.stationArtwork, let artwork = match?.artwork { art = artwork }
+        if origin != .unverifiedStation {
+            audio.splitRecording(name)
+            links.trackChanged(name, prefs: prefs)
+            if pane == .lyrics { findLyrics(name) }
+        } else {
+            links.clearTrack()
         }
-        if pane == .lyrics { findLyrics(cleaned) }
+        if let source { links.discord(client: prefs.discordID, title: source.title, detail: name) }
+    }
+
+    private func loadTrackDetails(_ title: String, artwork: [URL?], searchCatalog: Bool) {
+        trackTask?.cancel()
+        needsSongArtwork = false
+        trackTask = Task {
+            async let match = searchCatalog ? try? Catalog.songMatch(title) : nil
+            await showTrackArtwork(artwork)
+            let song = await match
+            guard !Task.isCancelled else { return }
+            appleMusicURL = song?.appleMusicURL
+            matchedSong = song
+            if trackArtworkPixels < Catalog.artworkMaxPixels {
+                await showTrackArtwork([song?.originalArtwork ?? song?.artwork])
+            }
+            if !Task.isCancelled, trackArtworkPixels < Catalog.artworkMinimumHD, trackOrigin == .station {
+                needsSongArtwork = true
+                scheduleRecognition(after: 3)
+            }
+        }
+    }
+
+    private func showTrackArtwork(_ candidates: [URL?]) async {
+        var seen = Set<URL>()
+        for url in candidates.compactMap({ $0 }) where url != source?.stationArtwork && seen.insert(url).inserted {
+            guard !Task.isCancelled else { return }
+            guard let image = await CoverFlowArtwork.load(url), !Task.isCancelled else { continue }
+            let pixels = Catalog.artworkPixels(image)
+            guard pixels > trackArtworkPixels else { continue }
+            trackArtworkPixels = pixels
+            art = url
+            if pixels >= Catalog.artworkMaxPixels { return }
+        }
     }
 
     func findLyrics(_ query: String) {
@@ -748,7 +833,14 @@ final class DialState: ObservableObject {
         guard source?.isSelfRadio != true, !finding else { return }
         let file: URL
         do { file = try audio.recognitionSample() }
-        catch { lyricStatus = "Play at least a few seconds of audio first."; return }
+        catch {
+            if automatic { nextRecognition = Date().addingTimeInterval(5) }
+            else { lyricStatus = "Play at least a few seconds of audio first." }
+            return
+        }
+        if automatic { lastAutomaticRecognition = Date() }
+        let trackAtSample = track
+        let artworkOnly = automatic && trackOrigin == .station
         finding = true
         lyricStatus = "Shazaming…"
         status = "Shazaming…"
@@ -764,11 +856,24 @@ final class DialState: ObservableObject {
             do {
                 let match = try await Recognition.match(file)
                 guard !Task.isCancelled,
-                      !automatic || (prefs.automaticRecognition && playback == .playing && trackOrigin != .station) else { return }
+                      !automatic || (prefs.automaticRecognition && playback == .playing &&
+                          track == trackAtSample) else { return }
                 let name = [match.artist, match.title].filter { !$0.isEmpty }.joined(separator: " – ")
                 guard !name.isEmpty else { return }
-                if track != name { setTrack(name, origin: .recognition) }
-                else if !automatic && pane == .lyrics { findLyrics(name) }
+                let artwork = [match.artwork, match.originalArtwork]
+                if artworkOnly {
+                    guard needsSongArtwork, trackOrigin == .station,
+                          Catalog.SongQuery(trackAtSample).matches(title: match.title, artist: match.artist) else { return }
+                    loadTrackDetails(name, artwork: artwork, searchCatalog: !match.artist.isEmpty)
+                    return
+                }
+                if automatic && trackOrigin == .station { return }
+                let unchanged = track == name
+                setTrack(name, origin: .recognition)
+                if !unchanged || trackArtworkPixels < Catalog.artworkMaxPixels {
+                    loadTrackDetails(name, artwork: artwork, searchCatalog: !match.artist.isEmpty)
+                }
+                if unchanged && !automatic && pane == .lyrics { findLyrics(name) }
                 if !automatic && pane != .lyrics { status = "Identified \(name)" }
             } catch {
                 if !Task.isCancelled && !automatic {
@@ -832,9 +937,10 @@ final class DialState: ObservableObject {
                 }
             }
         }
-        if prefs.automaticRecognition && playback == .playing && source?.isRadio == true && now >= nextRecognition {
-            nextRecognition = now.addingTimeInterval(60)
-            if trackOrigin != .station { identify(automatic: true) }
+        if prefs.automaticRecognition && playback == .playing && source?.isRadio == true &&
+            (trackOrigin != .station || needsSongArtwork) && !finding && now >= nextRecognition {
+            nextRecognition = now.addingTimeInterval(45)
+            identify(automatic: true)
         }
         if source?.isSelfRadio != true, playback == .playing { links.tick(prefs: prefs) }
     }

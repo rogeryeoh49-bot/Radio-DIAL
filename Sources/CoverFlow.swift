@@ -47,8 +47,10 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
         let playingArtwork = active ? dial.art : nil
         let selfRadioArtwork = dial.selfRadio.artwork
         let trackDetail = station?.isSelfRadio == true ? dial.selfRadio.displayDetail : dial.track
+        let playingLogoURL = dial.source?.stationArtwork
+        let playingAlbum = playingArtwork != playingLogoURL ? artwork.image(for: playingArtwork) : nil
         let highlightSource = supportsHDR && active
-            ? artwork.image(for: playingArtwork) ?? artwork.image(for: dial.source?.stationArtwork) : nil
+            ? playingAlbum ?? artwork.image(for: playingLogoURL).map { CoverFlowArtwork.stationFace(for: $0).image } : nil
         let highlight = highlightedCover.flatMap { $0.source === highlightSource ? $0.image : nil }
 
         VStack(spacing: 0) {
@@ -88,6 +90,7 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                                           albumOpacity: item.isSelfRadio ? 1 : isPlaying ? artworkFocus : 0,
                                           highlight: isPlaying ? highlight : nil,
                                           highlightOpacity: isPlaying && (dial.playback == .playing || paused) ? artworkFocus * (1 - pauseAppearance) : 0,
+                                          dimming: (0.075 + 0.125 * focus) * turn,
                                           size: size)
                                     .anchorPreference(key: CoverTopKey.self, value: .bounds) { isCenter ? $0 : nil }
                                     .contentShape(Rectangle())
@@ -109,7 +112,6 @@ struct CoverFlow<Country: View, Library: View, Options: View>: View {
                                               axis: (x: 0, y: 1, z: 0), perspective: 0.55)
                             .scaleEffect(1 - 0.23 * turn + (isPlaying ? (0.13 + 0.10 * dwellAmount) * focus : 0))
                             .offset(x: horizontalOffset(distance, size: size, focus: focus, dwell: dwellAmount))
-                            .brightness((-0.075 - 0.125 * focus) * turn)
                             .onHover { hovering in
                                 if isPlaying && isCenter { setSongCoverHover(hovering) }
                             }
@@ -661,6 +663,17 @@ private struct CoverFlowInput: NSViewRepresentable {
 
 let stationArtworkMatte = Color(white: 0.13)
 
+struct StationArtworkBacking: View {
+    let edges: StationArtworkEdgeColors?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            edges?.top.map { Color(cgColor: $0) } ?? stationArtworkMatte
+            edges?.bottom.map { Color(cgColor: $0) } ?? stationArtworkMatte
+        }
+    }
+}
+
 private struct FlowCover: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let fallbackTitle: String?
@@ -669,12 +682,14 @@ private struct FlowCover: View {
     let albumOpacity: Double
     let highlight: CGImage?
     let highlightOpacity: Double
+    let dimming: Double
     let size: CGFloat
 
     var body: some View {
-        face(showHighlight: true)
+        let station = image.map { CoverFlowArtwork.stationFace(for: $0) }
+        return face(station: station, isReflection: false)
             .overlay(alignment: .bottom) {
-                face(showHighlight: false)
+                face(station: station, isReflection: true)
                     .scaleEffect(x: 1, y: -1)
                     .frame(height: size * 0.24, alignment: .top)
                     .clipped()
@@ -686,9 +701,12 @@ private struct FlowCover: View {
             .shadow(color: .black.opacity(0.4), radius: 7, y: 5)
     }
 
-    private func face(showHighlight: Bool) -> some View {
-        ZStack {
-            if let image {
+    private func face(station: CoverFlowArtwork.StationFace?, isReflection: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 5)
+        let usesGlass = station?.usesGlass ?? false
+        let edges = usesGlass ? nil : station.flatMap { StationArtworkEdgeColors.forLandscapeImage($0.image) }
+        return ZStack {
+            if let image = station?.image {
                 Image(decorative: image, scale: 1).resizable().scaledToFit()
             } else {
                 placeholder
@@ -701,31 +719,44 @@ private struct FlowCover: View {
                     .id(ObjectIdentifier(album))
                     .transition(.opacity)
             }
-            if showHighlight, let highlight {
+            if !isReflection, let highlight {
                 Image(decorative: highlight, scale: 1)
                     .allowedDynamicRange(.constrainedHigh)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size, height: size)
-                    .background(isFramedStation || album != nil ? Color(white: 0.13) : .clear)
+                    .background(album != nil ? stationArtworkMatte : .clear)
                     .opacity(highlightOpacity)
                     .transition(.opacity)
             }
         }
         .frame(width: size, height: size)
+        .brightness(-dimming)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: album.map(ObjectIdentifier.init))
-        .background(isFramedStation ? stationArtworkMatte : .clear)
-        .animation(.easeInOut(duration: 0.18), value: highlight.map(ObjectIdentifier.init))
-        .clipShape(.rect(cornerRadius: 5))
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .strokeBorder(.white.opacity(isFramedStation ? 0.18 : (album == nil ? 0 : 0.18 * albumOpacity)))
+        .background {
+            if usesGlass {
+                if #available(macOS 26.0, *), !isReflection {
+                    shape.fill(.clear)
+                        .glassEffect(.clear.tint(.black.opacity(0.10)), in: shape)
+                        .mask { shape.strokeBorder(.white, lineWidth: 3) }
+                }
+            } else {
+                StationArtworkBacking(edges: edges)
+                    .brightness(edges == nil ? 0 : -dimming)
+            }
         }
-    }
-
-    private var isFramedStation: Bool {
-        guard let image else { return true }
-        return abs(image.width - image.height) <= max(image.width, image.height) / 50
+        .animation(.easeInOut(duration: 0.18), value: highlight.map(ObjectIdentifier.init))
+        .clipShape(shape)
+        .overlay {
+            if usesGlass {
+                shape.strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.035)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+            } else {
+                shape.strokeBorder(.white.opacity(0.18))
+            }
+        }
     }
 
     @ViewBuilder private var placeholder: some View {

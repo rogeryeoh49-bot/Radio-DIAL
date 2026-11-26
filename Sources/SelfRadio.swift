@@ -139,10 +139,7 @@ import ImageIO
         guard let data = value.artworkData else { return nil }
         let key = value.player + ":" + value.id
         if let file = artworkFiles[key] {
-            if !CoverFlowArtwork.hasPreparedImage(for: file),
-               let image = try? await Catalog.artworkThumbnail(from: file, maxPixels: 1200), !Task.isCancelled {
-                CoverFlowArtwork.prepare(image, for: file)
-            }
+            _ = await CoverFlowArtwork.load(file)
             return file
         }
         do {
@@ -164,9 +161,7 @@ import ImageIO
             guard !Task.isCancelled else { try? FileManager.default.removeItem(at: file); return nil }
             artworkFiles[key] = file
             // Decode before publishing this URL so the new cover is already in the shared UI cache.
-            if let image = try? await Catalog.artworkThumbnail(from: file, maxPixels: 1200), !Task.isCancelled {
-                CoverFlowArtwork.prepare(image, for: file)
-            }
+            _ = await CoverFlowArtwork.load(file)
             return file
         } catch { return nil }
     }

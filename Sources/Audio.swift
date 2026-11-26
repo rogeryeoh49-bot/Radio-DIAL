@@ -129,7 +129,7 @@ final class StreamAudio {
     private let capture = Capture()
     var onFailure: (String) -> Void = { _ in }
     var onStarted: (TimeInterval) -> Void = { _ in }
-    var onMetadata: (String, URL?) -> Void = { _, _ in }
+    var onMetadata: (PlaylistMetadata) -> Void = { _ in }
     var onEnded: () -> Void = {}
     var onRecordingInterrupted: (String) -> Void = { _ in }
     var lastAudioOutput: TimeInterval? { reader?.lastAudioOutput }
@@ -199,7 +199,7 @@ final class StreamAudio {
             icy = monitor
             monitor.start(source.url, proxy: proxy) { [weak self, weak monitor] title in
                 guard let self, self.icy === monitor else { return }
-                self.onMetadata(title, nil)
+                self.onMetadata(PlaylistMetadata.icyTrack(title) ?? PlaylistMetadata(name: title, artwork: nil))
             }
         }
     }
@@ -208,7 +208,7 @@ final class StreamAudio {
         playlistMetadata?.cancel()
         playlistMetadata = Task { @MainActor [weak self] in
             await PlaylistMetadata.watch(url, proxy: proxy) { [weak self] track in
-                self?.onMetadata(track.name, track.artwork)
+                self?.onMetadata(track)
             }
         }
     }
@@ -438,6 +438,9 @@ private final class Decoder {
             pending.removeAll(keepingCapacity: true)
             if bytes.isEmpty { break }
         }
+        // Closing the pipe on its reader thread releases FFmpeg if cancellation
+        // left it blocked writing PCM while the playback queue was full.
+        try? handle.close()
         buffers.waitUntilDrained()
         if lock.withLock({ stopped }) { return }
         let wasStarted = started
@@ -690,7 +693,12 @@ private final class ICY: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 }
 
 enum Recognition {
-    struct Match: Decodable { var artist: String; var title: String }
+    struct Match: Decodable {
+        var artist: String
+        var title: String
+        var artwork: URL?
+        var originalArtwork: URL? = nil
+    }
     private struct Failure: Decodable { var error: String }
     static func match(_ sample: URL) async throws -> Match {
         let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Radio Dial")
@@ -724,7 +732,7 @@ enum Recognition {
         switch await session.result(from: generator.signature()) {
         case .match(let match):
             guard let item = match.mediaItems.first, let title = item.title else { throw DialError.noTrack }
-            return Match(artist: item.artist ?? "", title: title)
+            return Match(artist: item.artist ?? "", title: title, artwork: item.artworkURL)
         case .noMatch: throw DialError.noTrack
         case .error(let error, _): throw error
         @unknown default: throw DialError.noTrack
