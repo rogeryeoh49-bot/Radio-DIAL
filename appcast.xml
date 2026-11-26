@@ -6,6 +6,23 @@
         <description>Radio Dial releases</description>
         <language>en</language>
         <item>
+            <title>2.2.2</title>
+            <pubDate>Thu, 26 Nov 2026 18:50:17 +0800</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>2.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Radio Dial 2.2.2</h2>
+<ul>
+<li>Settings has a sidebar with separate pages for Player, Self Radio, Network, Integrations, Privacy and Shortcuts. Preview and change themes directly under Player. VI Radio sits below the theme previews with its opening shortcut.</li>
+<li>Cover Flow shows transparent station logos without a backing. The top-right options button is now a single ellipsis.</li>
+<li>On macOS 26 or later, the light and dark Dock icons follow the system's automatic icon appearance, including when Radio Dial is closed.</li>
+<li>Manage usage sharing under Settings → Privacy. It uses a random installation ID and app version for launch, online activity and first-playback counts. It does not send station names, track details or listening history. Sharing starts enabled for new installations, and upgrades retain the existing preference.</li>
+</ul>
+<p>macOS 14 or later · Apple silicon and Intel. Locally signed and not notarized by Apple.</p>
+]]></description>
+            <enclosure url="https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/download/v2.2.2/Radio-Dial-macOS.zip" length="8979659" type="application/octet-stream" sparkle:edSignature="UrgM3oKf8X3s3qIPlEIwdB+/EBKg8GhcUNHmhesH+rN8AwoBjK2jmGuQix0ZbvF702GOy0B54cMv6LjL159kBw=="/>
+        </item>
+        <item>
             <title>2.2.1</title>
             <pubDate>Thu, 26 Nov 2026 12:49:49 +0800</pubDate>
             <sparkle:version>9</sparkle:version>
