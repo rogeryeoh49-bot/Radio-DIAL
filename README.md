@@ -3,10 +3,10 @@
 </div>
 
 <div align="center">
-  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/02.jpg"><img src="assets/screenshots/02.jpg" width="25.4%" alt="VI radio with Self Radio in the station carousel" /></a>
-  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/03.jpg"><img src="assets/screenshots/03.jpg" width="23%" alt="Cover Flow with album artwork" /></a>
-  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/04.jpg"><img src="assets/screenshots/04.jpg" width="22.4%" alt="FR-01 Receiver in the silver theme" /></a>
-  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/05.jpg"><img src="assets/screenshots/05.jpg" width="24.1%" alt="Radio DIAL station browser and visualizer" /></a>
+  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/02.jpg"><img src="assets/screenshots/02.jpg" width="24%" alt="VI radio with Self Radio in the station carousel" /></a>
+  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/03.jpg"><img src="assets/screenshots/03.jpg" width="24%" alt="Cover Flow with album artwork" /></a>
+  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/04.jpg"><img src="assets/screenshots/04.jpg" width="24%" alt="FR-01 Receiver in the silver theme" /></a>
+  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/05.jpg"><img src="assets/screenshots/05.jpg" width="24%" alt="Radio DIAL station browser and visualizer" /></a>
 </div>
 
 # Radio DIAL
