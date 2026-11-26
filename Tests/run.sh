@@ -22,3 +22,13 @@ swiftc Sources/Catalog.swift Sources/USStationArtwork.swift Tests/SelfRadioArtwo
 "$task_tmp/self-radio-artwork"
 swiftc Sources/Catalog.swift Sources/USStationArtwork.swift Sources/CoverFlowArtwork.swift Tests/CoverFlowArtworkTests.swift -o "$task_tmp/cover-flow-artwork"
 "$task_tmp/cover-flow-artwork"
+swiftc Sources/LocalUsageDashboard.swift Sources/UsageStatistics.swift Tests/UsageStatisticsTests.swift -o "$task_tmp/usage-statistics"
+"$task_tmp/usage-statistics"
+swiftc -D DEBUG Sources/LocalUsageDashboard.swift Sources/UsageStatistics.swift Tests/UsageStatisticsTests.swift -o "$task_tmp/usage-statistics-debug"
+"$task_tmp/usage-statistics-debug"
+
+if [[ ${1:-} == --audio ]]; then
+    swiftc Sources/{Audio,Catalog,LocalUsageDashboard,PlaylistMetadata,TrackMetadata,USStationArtwork,UsageStatistics,VISelectionTone}.swift \
+        Tests/PlaybackOutputTests.swift -o "$task_tmp/playback-output"
+    "$task_tmp/playback-output"
+fi

@@ -31,13 +31,17 @@ import Foundation
 
         let square = fixture(width: 64, height: 64, inset: 0)
         let wide = fixture(width: 96, height: 48, inset: 0)
+        let portrait = fixture(width: 48, height: 96, inset: 0)
+        let transparentPortrait = fixture(width: 48, height: 96, inset: 4)
         let paddedLogo = fixture(width: 96, height: 96, inset: 0, visible: CGRect(x: 11, y: 17, width: 68, height: 21))
         let squareFace = CoverFlowArtwork.stationFace(for: square)
         let wideFace = CoverFlowArtwork.stationFace(for: wide)
         let logoFace = CoverFlowArtwork.stationFace(for: paddedLogo)
-        precondition(!squareFace.usesGlass && squareFace.image === square)
-        precondition(!wideFace.usesGlass && wideFace.image === wide)
-        precondition(logoFace.usesGlass && (68...72).contains(logoFace.image.width) && (21...25).contains(logoFace.image.height))
+        precondition(squareFace.backing == .artwork && squareFace.image === square)
+        precondition(wideFace.backing == .artwork && wideFace.image === wide)
+        precondition(CoverFlowArtwork.stationFace(for: portrait).backing == .glass)
+        precondition(CoverFlowArtwork.stationFace(for: transparentPortrait).backing == .transparent)
+        precondition(logoFace.backing == .transparent && (68...72).contains(logoFace.image.width) && (21...25).contains(logoFace.image.height))
         precondition(CoverFlowArtwork.stationFace(for: paddedLogo) === logoFace)
         let probe = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
                               space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -53,7 +57,7 @@ import Foundation
         precondition(colors.top!.components![0] > 0.9)
         precondition(colors.bottom!.components![2] > 0.9)
         precondition(StationArtworkEdgeColors.forLandscapeImage(square) == nil)
-        print("Cover quality, transparent-logo cropping, and landscape edge fills passed")
+        print("Cover quality, transparent-logo classification and cropping, and landscape edge fills passed")
     }
 
     private static func fixture(width: Int, height: Int, inset: CGFloat, visible: CGRect? = nil) -> CGImage {

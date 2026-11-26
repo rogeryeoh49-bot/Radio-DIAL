@@ -25,6 +25,7 @@ struct Preferences: Codable {
     var podcastCountry = "US"
     // Optional for compatibility with settings saved by earlier releases.
     var gettingStartedCompleted: Bool?
+    var shareUsageStatistics: Bool?
     var defaultRadioCountry: String?
     var viEnabled: Bool?
     var selfRadioEnabled: Bool?
@@ -51,6 +52,7 @@ struct Preferences: Codable {
 final class DialState: ObservableObject {
     nonisolated static let storage = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Radio Dial")
     private let settingsURL: URL
+    private let usageStatistics: UsageStatistics
     private let hadPreferencesAtLaunch: Bool
     var shouldShowGettingStarted: Bool {
         if let completed = prefs.gettingStartedCompleted { return !completed }
@@ -76,6 +78,9 @@ final class DialState: ObservableObject {
 
     @Published var prefs: Preferences {
         didSet {
+            if loaded, (oldValue.shareUsageStatistics == true) != (prefs.shareUsageStatistics == true) {
+                usageStatistics.setActivitySharing(prefs.shareUsageStatistics == true)
+            }
             if !deferringPreferenceSave { persist() }
         }
     }
@@ -158,8 +163,10 @@ final class DialState: ObservableObject {
 
     init(storage: URL = DialState.storage) {
         settingsURL = storage.appendingPathComponent("settings.json")
+        usageStatistics = UsageStatistics(storage: storage)
         hadPreferencesAtLaunch = FileManager.default.fileExists(atPath: settingsURL.path)
         var saved = (try? Data(contentsOf: settingsURL)).flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
+        if !hadPreferencesAtLaunch { saved.shareUsageStatistics = true }
         saved.visualizer = Scope.currentMode(saved.visualizer)
         saved.theme = DialPalette.currentTheme(saved.theme)
         if saved.viPreviousKey?.keyCode == 50, saved.viPreviousKey?.label == "·" { saved.viPreviousKey?.label = "`" }
@@ -172,6 +179,11 @@ final class DialState: ObservableObject {
         applyVolume()
         audio.setBalance(Float(prefs.balance / 100))
         audio.onStarted = { [weak self] outputTime in self?.started(outputTime: outputTime) }
+        audio.onAudiblePlayback = { [weak self] in
+            guard let self, self.playback == .playing, let source = self.source,
+                  source.isRadio || source.episode, !source.isSelfRadio else { return }
+            self.usageStatistics.playbackSucceeded(sharingEnabled: self.prefs.shareUsageStatistics == true)
+        }
         audio.onFailure = { [weak self] error in self?.failed(error) }
         audio.onEnded = { [weak self] in self?.stop(message: "Playback finished.") }
         audio.onMetadata = { [weak self] metadata in
@@ -210,6 +222,8 @@ final class DialState: ObservableObject {
     func bootstrap() {
         guard !loaded else { return }
         loaded = true
+        if !hadPreferencesAtLaunch { persist() }
+        usageStatistics.setActivitySharing(prefs.shareUsageStatistics == true)
         configureSelfRadio()
         searchStations(name: "", country: prefs.defaultRadioCountry ?? "", tag: "", min: 0, sort: "clickcount")
         Task {
@@ -244,6 +258,8 @@ final class DialState: ObservableObject {
             self?.persist()
         }
     }
+
+    func stopUsageStatistics() { usageStatistics.cancel() }
 
     func flushPendingPreferences() {
         if preferenceSaveTask != nil { persist() }
@@ -688,16 +704,16 @@ final class DialState: ObservableObject {
 
     func refreshFiles() {
         recordings = files(in: prefs.capture.folder)
-        downloads = files(in: downloadFolder)
+        downloads = files(in: downloadFolder, episodes: true)
     }
 
-    private func files(in folder: URL) -> [Source] {
+    private func files(in folder: URL, episodes: Bool = false) -> [Source] {
         let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: .skipsHiddenFiles)) ?? []
         return urls.filter { ["mp3", "wav", "flac", "ogg", "m4a", "aac", "opus", "mp4"].contains($0.pathExtension.lowercased()) }.sorted {
             ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
         }.map { Source(id: $0.absoluteString, title: $0.deletingPathExtension().lastPathComponent,
                        url: $0, subtitle: $0.dateModified?.formatted(date: .abbreviated, time: .shortened) ?? "",
-                       codec: $0.pathExtension.uppercased()) }
+                       codec: $0.pathExtension.uppercased(), episode: episodes) }
     }
 
     func download(_ episode: Source) {

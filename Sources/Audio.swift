@@ -42,12 +42,13 @@ private final class Analyzer {
     deinit { vDSP_destroy_fftsetup(setup) }
 
     func frame(_ buffer: AVAudioPCMBuffer) -> MeterFrame {
-        guard let channels = buffer.floatChannelData, buffer.frameLength == Self.fftSize else { return MeterFrame() }
+        guard let channels = buffer.floatChannelData else { return MeterFrame() }
         let left = channels[0], right = channels[1]
-        let count = Self.fftSize
+        let count = Int(buffer.frameLength)
         var frame = MeterFrame()
         vDSP_rmsqv(left, 1, &frame.left, vDSP_Length(count))
         vDSP_rmsqv(right, 1, &frame.right, vDSP_Length(count))
+        guard count == Self.fftSize else { return frame }
 
         let mono = (0..<count).map { (left[$0] + right[$0]) * 0.5 }
         // Trigger on a rising zero crossing so adjacent scope traces line up.
@@ -129,6 +130,7 @@ final class StreamAudio {
     private let capture = Capture()
     var onFailure: (String) -> Void = { _ in }
     var onStarted: (TimeInterval) -> Void = { _ in }
+    var onAudiblePlayback: () -> Void = {}
     var onMetadata: (PlaylistMetadata) -> Void = { _ in }
     var onEnded: () -> Void = {}
     var onRecordingInterrupted: (String) -> Void = { _ in }
@@ -168,7 +170,7 @@ final class StreamAudio {
         halt()
         guard let executable = AudioTools.ffmpeg else { throw DialError.missingDecoder }
         if !engine.isRunning { try engine.start() }
-        let decoder = Decoder(node: node, capture: capture)
+        let decoder = Decoder(node: node, capture: capture, audible: node.volume > 0)
         let isPlaylist = source.isRadio && ["m3u", "m3u8"].contains(source.url.pathExtension.lowercased())
         if isPlaylist {
             decoder.onPlaylist = { [weak self, weak decoder] url in
@@ -182,6 +184,10 @@ final class StreamAudio {
             self.tuningNode.stop()
             if isPlaylist && self.playlistMetadata == nil { self.watchPlaylist(source.url, proxy: proxy) }
             self.onStarted(outputTime)
+        }
+        decoder.onAudiblePlayback = { [weak self, weak decoder] in
+            guard let self, self.reader === decoder else { return }
+            self.onAudiblePlayback()
         }
         decoder.onExit = { [weak self, weak decoder] decoded, error in
             guard let self, self.reader === decoder else { return }
@@ -243,9 +249,13 @@ final class StreamAudio {
         selectionNode.play()
     }
 
-    func pause(_ paused: Bool) { if paused { node.pause() } else { node.play() } }
+    func pause(_ paused: Bool) {
+        reader?.setPaused(paused)
+        if paused { node.pause() } else { node.play() }
+    }
     func setVolume(_ value: Float) {
         node.volume = value
+        reader?.setAudible(value > 0)
         tuningNode.volume = value
         selectionNode.volume = value
     }
@@ -326,20 +336,65 @@ private final class Decoder {
     private let meterLock = NSLock()
     private var last = MeterFrame()
     private var outputTime: TimeInterval?
+    private var audible: Bool
+    private var paused = false
+    private var playbackAttempt = 0
+    private var pendingAudiblePlayback = false
+    private var reportedAudiblePlayback = false
     private var snippets: [Data] = []
     private var details = ""
     private var reportedPlaylist = false
     private var length: Double = 0
     var onStarted: (TimeInterval) -> Void = { _ in }
+    var onAudiblePlayback: () -> Void = {}
     var onPlaylist: (URL) -> Void = { _ in }
     var onExit: (Bool, String?) -> Void = { _, _ in }
     var lastAudioOutput: TimeInterval? { meterLock.withLock { outputTime } }
     var latest: MeterFrame { meterLock.withLock { last } }
     var duration: Double { lock.withLock { length } }
 
-    init(node: AVAudioPlayerNode, capture: Capture) {
+    init(node: AVAudioPlayerNode, capture: Capture, audible: Bool) {
         self.node = node
         self.capture = capture
+        self.audible = audible
+    }
+
+    func setPaused(_ value: Bool) {
+        meterLock.withLock {
+            paused = value
+            playbackAttempt += 1
+            reportedAudiblePlayback = false
+            pendingAudiblePlayback = false
+        }
+    }
+
+    func setAudible(_ value: Bool) {
+        meterLock.withLock { audible = value }
+    }
+
+    private func didPlay(_ frame: MeterFrame) {
+        let outputTime = ProcessInfo.processInfo.systemUptime
+        let (first, attempt) = meterLock.withLock { () -> (Bool, Int?) in
+            let first = self.outputTime == nil
+            self.outputTime = outputTime
+            last = frame
+            guard audible, !paused, !pendingAudiblePlayback, !reportedAudiblePlayback,
+                  frame.left > 0 || frame.right > 0 else { return (first, nil) }
+            pendingAudiblePlayback = true
+            return (first, playbackAttempt)
+        }
+        guard first || attempt != nil else { return }
+        DispatchQueue.main.async {
+            if first { self.onStarted(outputTime) }
+            guard let attempt else { return }
+            let completed = self.meterLock.withLock {
+                guard self.playbackAttempt == attempt else { return false }
+                self.pendingAudiblePlayback = false
+                self.reportedAudiblePlayback = self.audible && !self.paused
+                return self.reportedAudiblePlayback
+            }
+            if completed { self.onAudiblePlayback() }
+        }
     }
 
     func start(executable: URL, source: Source, seek: Double, profile: String, proxy: String) throws {
@@ -416,16 +471,7 @@ private final class Decoder {
                 capture.append(buffer)
                 node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self, buffers] _ in
                     // Display the buffer just heard, rather than audio still in the queue.
-                    if let self {
-                        let outputTime = ProcessInfo.processInfo.systemUptime
-                        let first = self.meterLock.withLock {
-                            let first = self.outputTime == nil
-                            self.outputTime = outputTime
-                            self.last = frame
-                            return first
-                        }
-                        if first { DispatchQueue.main.async { self.onStarted(outputTime) } }
-                    }
+                    self?.didPlay(frame)
                     buffers.finish()
                 }
                 return true

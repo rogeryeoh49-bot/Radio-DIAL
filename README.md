@@ -15,6 +15,15 @@ Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide
 
 **ALL FREE**. It is impossible to find a pure radio player that doesn't ask you to spend money. At least, I've never found one on either iOS or macOS. Yes, so I made a pure radio player to give you access to completely free radio worldwide. Full of features to fit any needs.
 
+## What’s new in v2.2.2
+
+- **Settings:** A sidebar makes playback, Self Radio, network, privacy and shortcut settings easier to find. Themes are previewed inline under Player.
+- **Cover Flow:** Transparent station logos keep their original transparency, and the top-right menu uses a single ellipsis.
+- **Dock icon:** Light and dark artwork follow automatic icon appearance on macOS 26 and later, including when Radio DIAL is closed.
+- **Usage statistics:** Manage sharing in Settings → Privacy. New installations start with sharing enabled, and existing preferences carry over.
+
+[Read the full 2.2.2 release notes](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/tag/v2.2.2)
+
 ## What’s new in v2.2.1
 
 - **Self Radio** can follow audio from other apps and hand playback back to supported players.
@@ -58,7 +67,7 @@ This removes macOS’s quarantine attribute from that copy of the app. If you in
 
 - Select a station to play it. Right-click rows for stream tests, favorites, podcast downloads and other actions.
 - Use the record button to choose MP3, WAV, FLAC or Ogg, with optional splitting when the stream supplies new track metadata.
-- Use the top-right menu for the sleep timer, alarms, scheduled recording, playlists, equalizer presets, themes, stream status and settings.
+- Use the top-right menu for the sleep timer, schedules, playlists and Settings. Themes and equalizer presets are under Player, and Stream Monitor is under Network.
 - Choose the FR-01 Receiver theme for AM/FM tuning, a US city selector, and four presets drawn from your favorite stations.
 - Keep the app running and the Mac awake for scheduled actions. Radio Dial does not wake a sleeping Mac.
 - Last.fm and Discord require your own service credentials or application ID in Settings.
@@ -90,7 +99,7 @@ The guided tour opens automatically for a new installation. Finish or skip it on
 
 ### Self Radio
 
-Self Radio displays music playing in other apps using real system-audio activity. Enable **Settings → General → Self Radio**: external music stops the radio stream and selects Self Radio; starting a station first pauses other music. Music/Spotify can supply song information and artwork, with the original black Self Radio logo as fallback. System audio detection requires macOS 14.2+ and System Audio Recording permission; Music/Spotify may also request Automation access. A private macOS media-control fallback helps with browsers but cannot control every application. See [Self Radio implementation and limitations](SELF_RADIO.md).
+Self Radio displays music playing in other apps using real system-audio activity. Enable **Settings → Self Radio**: external music stops the radio stream and selects Self Radio; starting a station first pauses other music. Music/Spotify can supply song information and artwork, with the original black Self Radio logo as fallback. System audio detection requires macOS 14.2+ and System Audio Recording permission; Music/Spotify may also request Automation access. A private macOS media-control fallback helps with browsers but cannot control every application. See [Self Radio implementation and limitations](SELF_RADIO.md).
 
 ### VI radio backdrop
 
@@ -106,7 +115,9 @@ Contact me at [rogeryeoh49@gmail.com](mailto:rogeryeoh49@gmail.com).
 
 ### Build and run
 
-Run `./build.sh` with the macOS Command Line Tools installed. It builds and locally signs `build/Radio Dial.app` for the current Mac. Use `./build.sh --universal` to build for Apple silicon and Intel. For a source build, install FFmpeg with Homebrew or set `FFMPEG_PATH`.
+Run `./build.sh` with Xcode 26 or later selected as the developer toolchain. The build compiles the light and dark Dock icons for macOS 26 and later. It builds and locally signs `build/Radio Dial.app` for the current Mac. Use `./build.sh --universal` to build for Apple silicon and Intel. For a source build, install FFmpeg with Homebrew or set `FFMPEG_PATH`.
+
+Use `./build.sh --debug` or `RADIO_DIAL_USAGE_URL= ./build.sh` for development builds without the shared usage endpoint.
 
 Song identification can use the optional recognition environment. Install it with the two commands below. Without it, the app tries ShazamKit, which requires catalog access in the app’s signing configuration.
 

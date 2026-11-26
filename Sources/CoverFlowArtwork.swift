@@ -13,12 +13,16 @@ final class CoverFlowArtwork: ObservableObject {
     }()
     private static var sharedLoads: [URL: Task<CGImage?, Never>] = [:]
     final class StationFace {
-        let image: CGImage
-        let usesGlass: Bool
+        enum Backing {
+            case transparent, glass, artwork
+        }
 
-        init(image: CGImage, usesGlass: Bool) {
+        let image: CGImage
+        let backing: Backing
+
+        init(image: CGImage, backing: Backing) {
             self.image = image
-            self.usesGlass = usesGlass
+            self.backing = backing
         }
     }
 
@@ -46,7 +50,8 @@ final class CoverFlowArtwork: ObservableObject {
         let isPortrait = image.height - image.width > image.height / 50
         let alpha = stationAlpha(in: image)
         let visibleImage = alpha.bounds.flatMap { image.cropping(to: $0) } ?? image
-        let face = StationFace(image: visibleImage, usesGlass: isPortrait || alpha.hasTransparency)
+        let backing: StationFace.Backing = alpha.hasTransparency ? .transparent : (isPortrait ? .glass : .artwork)
+        let face = StationFace(image: visibleImage, backing: backing)
         stationFaces.setObject(face, forKey: image, cost: image.bytesPerRow * image.height)
         return face
     }

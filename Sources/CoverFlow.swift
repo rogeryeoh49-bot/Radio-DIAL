@@ -703,8 +703,8 @@ private struct FlowCover: View {
 
     private func face(station: CoverFlowArtwork.StationFace?, isReflection: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: 5)
-        let usesGlass = station?.usesGlass ?? false
-        let edges = usesGlass ? nil : station.flatMap { StationArtworkEdgeColors.forLandscapeImage($0.image) }
+        let backing = station?.backing ?? .artwork
+        let edges = backing == .artwork ? station.flatMap { StationArtworkEdgeColors.forLandscapeImage($0.image) } : nil
         return ZStack {
             if let image = station?.image {
                 Image(decorative: image, scale: 1).resizable().scaledToFit()
@@ -734,13 +734,16 @@ private struct FlowCover: View {
         .brightness(-dimming)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: album.map(ObjectIdentifier.init))
         .background {
-            if usesGlass {
+            switch backing {
+            case .transparent:
+                EmptyView()
+            case .glass:
                 if #available(macOS 26.0, *), !isReflection {
                     shape.fill(.clear)
                         .glassEffect(.clear.tint(.black.opacity(0.10)), in: shape)
                         .mask { shape.strokeBorder(.white, lineWidth: 3) }
                 }
-            } else {
+            case .artwork:
                 StationArtworkBacking(edges: edges)
                     .brightness(edges == nil ? 0 : -dimming)
             }
@@ -748,12 +751,12 @@ private struct FlowCover: View {
         .animation(.easeInOut(duration: 0.18), value: highlight.map(ObjectIdentifier.init))
         .clipShape(shape)
         .overlay {
-            if usesGlass {
+            if backing == .glass {
                 shape.strokeBorder(
                     LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.035)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
-            } else {
+            } else if backing == .artwork {
                 shape.strokeBorder(.white.opacity(0.18))
             }
         }

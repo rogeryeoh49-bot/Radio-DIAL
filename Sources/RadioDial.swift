@@ -12,19 +12,25 @@ enum RadioDialApp {
             }
         }
         let app = NSApplication.shared
+        let iconAppearance = observeDockIcon(on: app)
+        let delegate = DialDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.regular)
+        withExtendedLifetime((delegate, iconAppearance)) { app.run() }
+    }
+
+    @MainActor private static func observeDockIcon(on app: NSApplication) -> NSKeyValueObservation? {
+        // The bundle supplies both appearances after the app quits. Set the
+        // running tile explicitly because AppKit can initially publish the fallback.
         let lightIcon = Bundle.main.url(forResource: "RadioDial", withExtension: "icns").flatMap { NSImage(contentsOf: $0) }
         let darkIcon = Bundle.main.url(forResource: "RadioDial-Dark", withExtension: "icns").flatMap { NSImage(contentsOf: $0) }
-        let iconAppearance = app.observe(\.effectiveAppearance, options: [.initial, .new]) { _, change in
+        return app.observe(\.effectiveAppearance, options: [.initial, .new]) { _, change in
             Task { @MainActor in
                 let appearance = change.newValue ?? app.effectiveAppearance
                 let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
                 if let icon = dark ? darkIcon : lightIcon { app.applicationIconImage = icon }
             }
         }
-        let delegate = DialDelegate()
-        app.delegate = delegate
-        app.setActivationPolicy(.regular)
-        withExtendedLifetime((delegate, iconAppearance)) { app.run() }
     }
 }
 
@@ -264,23 +270,21 @@ private struct DialWindow: View {
     private var optionsMenu: some View {
         Menu {
             Button("Open Stream…") { dial.pane = .custom }
-            Divider()
             Button("Sleep Timer…") { dial.pane = .sleep }
-            Button("Alarms…") { dial.pane = .alarms }
-            Button("Scheduled Recordings…") { dial.pane = .scheduled }
-            Divider()
             Button("Playlists…") { dial.pane = .playlist }
-            Button("Equalizer Presets…") { dial.pane = .presets }
-            Button("Stream Monitor…") { dial.pane = .stream }
-            Button("Themes…") { dial.pane = .theme }
-            Button("Settings…", action: openSettings)
+            Menu("Schedules") {
+                Button("Alarms…") { dial.pane = .alarms }
+                Button("Scheduled Recordings…") { dial.pane = .scheduled }
+            }
             Divider()
-            Button("About Radio Dial") { dial.pane = .about }
+            Button("Settings…", action: openSettings)
         } label: {
-            Label("Menu", systemImage: "line.3.horizontal").labelStyle(.iconOnly)
+            Label("More Options", systemImage: "ellipsis").labelStyle(.iconOnly)
         }
+        .menuIndicator(.hidden)
         .fixedSize()
-        .help("Menu").accessibilityLabel("Options")
+        .help("More Options")
+        .accessibilityLabel("More Options")
     }
 
     private var display: some View {
@@ -724,7 +728,7 @@ private struct DialWindow: View {
                 Button("Move Up") { dial.moveFavorite(item, by: -1) }
                 Button("Move Down") { dial.moveFavorite(item, by: 1) }
             }
-            if item.episode { Button("Download Episode") { dial.download(item) } }
+            if item.episode && !item.url.isFileURL { Button("Download Episode") { dial.download(item) } }
             if item.isRadio {
                 Button("Test Stream") { dial.test(item) }
                 if UUID(uuidString: item.id) != nil { Button("Vote on Radio Browser") { dial.vote(item) } }
@@ -1129,7 +1133,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate, NSWindowDeleg
         if settingsWindow == nil {
             let screen = window?.screen ?? NSScreen.main
             let height = min(680, (screen?.visibleFrame.height ?? 760) - 50)
-            let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: height),
+            let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: height),
                                     styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                     backing: .buffered, defer: false)
             settings.title = "Radio Dial Settings"
@@ -1140,7 +1144,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate, NSWindowDeleg
                 dial: dial,
                 startTutorial: { [weak self] in self?.showGettingStarted() },
                 finishTutorial: { [weak self] in self?.endTutorial() }))
-            settings.contentMinSize = NSSize(width: 520, height: 350)
+            settings.contentMinSize = NSSize(width: 620, height: 400)
             settings.center()
             settingsWindow = settings
         }
@@ -1176,6 +1180,7 @@ private final class DialDelegate: NSObject, NSApplicationDelegate, NSWindowDeleg
         VIRadioController.shared.shutdown()
         dial.selfRadio.shutdown()
         viPreferences?.cancel()
+        dial.stopUsageStatistics()
         dial.stop()
         dial.flushPendingPreferences()
         nowPlaying?.tearDown()
