@@ -6,7 +6,7 @@
 
 A free macOS player for internet radio and podcasts from around the world.
 
-[Download v2.2.0](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/latest) · [Release notes](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/tag/v2.2.0)
+[Download latest release](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/latest) · [Release notes](https://github.com/rogeryeoh49-bot/Radio-DIAL/releases/tag/v2.2.0)
 
 ## What you can do
 
@@ -38,7 +38,7 @@ xattr -dr com.apple.quarantine "$HOME/Applications/Radio Dial.app"
 
 ## In development
 
-These features are on [`main`](https://github.com/rogeryeoh49-bot/Radio-DIAL/tree/main) and will be available in a later release.
+Preview these features on the [`main` branch](https://github.com/rogeryeoh49-bot/Radio-DIAL/tree/main).
 
 - **Guided tour.** Learn station search, themes, Cover Flow, and the VI radio shortcut. Replay it from **Help → Getting Started…**.
 - **Self Radio.** Show music from other apps inside Radio DIAL, including track information and artwork from Apple Music or Spotify when available. System audio detection requires macOS 14.2+ and System Audio Recording permission. [How it works](SELF_RADIO.md)
