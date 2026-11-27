@@ -2,16 +2,10 @@
   <img src="https://readme-typing-svg.demolab.com/?font=VT323&size=70&duration=5000&pause=8000&color=39FF14&background=000000&center=false&vCenter=true&width=1000&height=80&lines=BEST+RADIO+player+on+macOS" />
 </div>
 
-<table>
-  <tr>
-    <td align="center" valign="top"><a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/02.jpg"><img src="assets/screenshots/02.jpg" width="420" alt="VI radio with Self Radio in the station carousel" /></a></td>
-    <td align="center" valign="top"><a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/03.jpg"><img src="assets/screenshots/03.jpg" width="420" alt="Cover Flow with album artwork" /></a></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top"><a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/04.jpg"><img src="assets/screenshots/04.jpg" width="420" alt="FR-01 Receiver in the silver theme" /></a></td>
-    <td align="center" valign="top"><a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/05.jpg"><img src="assets/screenshots/05.jpg" width="420" alt="Radio DIAL station browser and visualizer" /></a></td>
-  </tr>
-</table>
+<div align="center">
+  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/02.jpg"><img src="assets/screenshots/02.jpg" width="49.5%" align="bottom" alt="VI radio with Self Radio in the station carousel" /></a>&thinsp;<a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/03.jpg"><img src="assets/screenshots/03.jpg" width="49.5%" align="bottom" alt="Cover Flow with album artwork" /></a><br>
+  <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/04.jpg"><img src="assets/screenshots/04.jpg" width="49.5%" align="top" alt="FR-01 Receiver in the silver theme" /></a>&thinsp;<a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/05.jpg"><img src="assets/screenshots/05.jpg" width="49.5%" align="top" alt="Radio DIAL station browser and visualizer" /></a>
+</div>
 
 # Radio DIAL
 
