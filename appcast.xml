@@ -10,6 +10,7 @@
             <pubDate>Thu, 26 Nov 2026 18:50:17 +0800</pubDate>
             <sparkle:version>10</sparkle:version>
             <sparkle:shortVersionString>2.2.2</sparkle:shortVersionString>
+            <sparkle:criticalUpdate />
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<h2>Radio Dial 2.2.2</h2>
 <ul>
