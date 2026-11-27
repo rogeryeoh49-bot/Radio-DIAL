@@ -7,6 +7,8 @@
   <a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/04.jpg"><img src="assets/screenshots/04.jpg" width="49.5%" align="top" alt="FR-01 Receiver in the silver theme" /></a>&thinsp;<a href="https://raw.githubusercontent.com/rogeryeoh49-bot/Radio-DIAL/main/assets/screenshots/05.jpg"><img src="assets/screenshots/05.jpg" width="49.5%" align="top" alt="Radio DIAL station browser and visualizer" /></a>
 </div>
 
+<div align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></div>
+
 # Radio DIAL
 
 Radio DIAL is a macOS app for listening to internet radio and podcasts worldwide. It includes different themes, live audio visualizers, recording and scheduling, a sleep timer, alarms, and song/lyrics identification. 
